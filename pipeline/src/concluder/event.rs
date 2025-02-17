@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Conclusions included for all events:
 ///     1. An event's signature has been verified
-///     2. An event's previous events will have an index less than the event's index.
+///     2. An event's previous events will have an stream_order less than the event's stream_order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConclusionEvent {
     /// An event that contains data for a stream.
@@ -34,11 +34,11 @@ impl AsRef<ConclusionEvent> for ConclusionEvent {
 }
 
 impl ConclusionEvent {
-    /// Report the index of the event.
-    pub fn index(&self) -> u64 {
+    /// Report the stream_order of the event.
+    pub fn stream_order(&self) -> u64 {
         match self {
-            ConclusionEvent::Data(data) => data.index,
-            ConclusionEvent::Time(time) => time.index,
+            ConclusionEvent::Data(data) => data.stream_order,
+            ConclusionEvent::Time(time) => time.stream_order,
         }
     }
     pub(crate) fn event_type_as_int(&self) -> u8 {
@@ -83,8 +83,9 @@ pub struct ConclusionInit {
 /// Additionally we have concluded to which stream the event belongs and its associated metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConclusionData {
-    /// Index of the event. See [`ConclusionEvent`] for invariants about the index.
-    pub index: u64,
+    /// Stream order value of the event. See [`ConclusionEvent`] for invariants about the stream
+    /// order.
+    pub stream_order: u64,
     /// The CID of the event itself. Can be used as a unique identifier for the event.
     pub event_cid: Cid,
     /// The stream metadata of the event.
@@ -100,8 +101,8 @@ pub struct ConclusionData {
 /// Additionally we have concluded to which stream the event belongs and its associated metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConclusionTime {
-    /// Index of the event. See [`ConclusionEvent`] for invariants about the index.
-    pub index: u64,
+    /// Index of the event. See [`ConclusionEvent`] for invariants about the stream order.
+    pub stream_order: u64,
     /// The CID of the event itself. Can be used as a unique identifier for the event.
     pub event_cid: Cid,
     /// The stream metadata of the event.
@@ -181,7 +182,7 @@ impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
 
 /// Construct a [`RecordBatch`] from an iterator of [`ConclusionEvent`]s.
 pub struct ConclusionEventBuilder {
-    index: UInt64Builder,
+    stream_order: UInt64Builder,
     event_type: UInt8Builder,
     stream_cid: BinaryBuilder,
     stream_type: UInt8Builder,
@@ -201,7 +202,7 @@ pub struct ConclusionEventBuilder {
 impl Default for ConclusionEventBuilder {
     fn default() -> Self {
         Self {
-            index: UInt64Builder::new(),
+            stream_order: UInt64Builder::new(),
             event_type: PrimitiveBuilder::new(),
             stream_cid: BinaryBuilder::new(),
             stream_type: PrimitiveBuilder::new(),
@@ -235,7 +236,7 @@ impl ConclusionEventBuilder {
                     self.previous.values().append_value(cid.to_bytes());
                 }
                 self.previous.append(!data_event.previous.is_empty());
-                self.index.append_value(data_event.index);
+                self.stream_order.append_value(data_event.stream_order);
                 &data_event.init
             }
             ConclusionEvent::Time(time_event) => {
@@ -245,7 +246,7 @@ impl ConclusionEventBuilder {
                     self.previous.values().append_value(cid.to_bytes());
                 }
                 self.previous.append(!time_event.previous.is_empty());
-                self.index.append_value(time_event.index);
+                self.stream_order.append_value(time_event.stream_order);
                 &time_event.init
             }
         };
@@ -262,7 +263,10 @@ impl ConclusionEventBuilder {
 
     fn finish(&mut self) -> StructArray {
         StructArray::try_from(vec![
-            ("index", Arc::new(self.index.finish()) as ArrayRef),
+            (
+                "stream_order",
+                Arc::new(self.stream_order.finish()) as ArrayRef,
+            ),
             ("stream_cid", Arc::new(self.stream_cid.finish()) as ArrayRef),
             (
                 "stream_type",
@@ -316,7 +320,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 /// fn main() -> Result<()> {
 ///     let events = vec![
 ///         ConclusionEvent::Data(ConclusionData {
-///             index: 0,
+///             stream_order: 0,
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),
@@ -328,7 +332,7 @@ impl<'a> Extend<&'a ConclusionEvent> for ConclusionEventBuilder {
 ///             data: vec![1, 2, 3],
 ///         }),
 ///         ConclusionEvent::Data(ConclusionData {
-///             index: 1,
+///             stream_order: 1,
 ///             event_cid: Cid::default(),
 ///             init: ConclusionInit {
 ///                 stream_cid: Cid::default(),
@@ -410,7 +414,7 @@ mod tests {
                 },
                 previous: vec![],
                 data: b"123".into(),
-                index: 0,
+                stream_order: 0,
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(
@@ -434,7 +438,7 @@ mod tests {
                 )
                 .unwrap()],
                 data: b"456".into(),
-                index: 1,
+                stream_order: 1,
             }),
             ConclusionEvent::Time(ConclusionTime {
                 event_cid: Cid::from_str(
@@ -457,7 +461,7 @@ mod tests {
                         ("model".to_string(), b"model".to_vec()),
                     ],
                 },
-                index: 2,
+                stream_order: 2,
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(
@@ -483,7 +487,7 @@ mod tests {
                         .unwrap(),
                 ],
                 data: b"789".into(),
-                index: 3,
+                stream_order: 3,
             }),
         ];
         // Convert events to RecordBatch
@@ -493,14 +497,14 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | index | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   |
-            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |
-            | 1     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3     | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +-------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +--------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | stream_order | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   |
+            +--------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
+            | 0            | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |
+            | 1            | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
+            | 2            | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
+            | 3            | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
+            +--------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
     }
 
     // Applies various transformations on a record batch of conclusion_events data to make it easier to
@@ -521,7 +525,7 @@ mod tests {
         let cid_string_list = Arc::new(ScalarUDF::from(CidStringList::new()));
         conclusion_events
             .select(vec![
-                col("index"),
+                col("stream_order"),
                 Expr::ScalarFunction(ScalarFunction::new_udf(
                     cid_string.clone(),
                     vec![col("stream_cid")],
@@ -544,7 +548,7 @@ mod tests {
                 .alias("previous"),
             ])
             .unwrap()
-            .sort(vec![col("index").sort(true, true)])
+            .sort(vec![col("stream_order").sort(true, true)])
             .unwrap()
             .collect()
             .await

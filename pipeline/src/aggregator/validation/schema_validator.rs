@@ -47,12 +47,20 @@ impl SchemaValidator {
             if self.include_errors {
                 let mut errs = Vec::new();
                 for err in validator.iter_errors(mid_data) {
-                    // Special case the max length error as it prints out the entire contents that
+                    // Special case the a few error kinds as they print out the entire contents that
                     // can be very long.
-                    let err_msg = if let ValidationErrorKind::MaxLength { limit } = err.kind {
-                        format!("value is longer than {} characters", limit)
-                    } else {
-                        err.to_string()
+                    let err_msg = match err.kind {
+                        ValidationErrorKind::MaxItems { limit } => format!(
+                            "value has more than {} item{}",
+                            limit,
+                            if limit == 1 { "" } else { "s" }
+                        ),
+                        ValidationErrorKind::MaxLength { limit } => format!(
+                            "value is longer than {} character{}",
+                            limit,
+                            if limit == 1 { "" } else { "s" }
+                        ),
+                        _ => err.to_string(),
                     };
                     if err.instance_path.as_str().is_empty() {
                         errs.push(err_msg)

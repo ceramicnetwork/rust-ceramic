@@ -80,21 +80,22 @@ impl ModelInstance {
                 model.account_relation()
             )
         }
+        let is_unique_empty = unique.map(|u| u.is_empty()).unwrap_or(true);
         // Check unique is set/unset appriopriately
         let account_relation = model.account_relation();
         match account_relation {
             ModelAccountRelation::Single => {
-                if unique.is_some() {
+                if !is_unique_empty {
                     fail!("ModelInstanceDocuments for models with SINGLE accountRelations must be created deterministically")
                 }
             }
             ModelAccountRelation::List => {
-                if unique.is_none() {
+                if is_unique_empty {
                     fail!("ModelInstanceDocuments for models with LIST accountRelations must be created with a unique field");
                 }
             }
             ModelAccountRelation::Set => {
-                if unique.is_none() {
+                if is_unique_empty {
                     fail!("ModelInstanceDocuments for models with SET accountRelations must be created with a unique field containing data from the fields providing the set semantics");
                 }
             }

@@ -13,7 +13,9 @@ pub fn conclusion_events() -> SchemaRef {
     Arc::clone(CONCLUSION_EVENTS.get_or_init(|| {
         Arc::new(
             SchemaBuilder::from(&Fields::from(vec![
-                Field::new("index", DataType::UInt64, false),
+                // An order that ensures an event row comes after all rows in its stream
+                // reachable from the row itself.
+                Field::new("stream_order", DataType::UInt64, false),
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
@@ -64,7 +66,13 @@ pub fn event_states() -> SchemaRef {
     Arc::clone(EVENT_STATES.get_or_init(|| {
         Arc::new(
             SchemaBuilder::from(&Fields::from(vec![
-                Field::new("index", DataType::UInt64, false),
+                // An order that ensures an event row comes after all rows in its stream
+                // reachable from the row itself.
+                Field::new("stream_order", DataType::UInt64, false),
+                // An order that ensures an event state row comes after all rows needed to
+                // construct its state. This order is stream type dependent, but holds for all
+                // stream types.
+                Field::new("event_state_order", DataType::UInt64, false),
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),

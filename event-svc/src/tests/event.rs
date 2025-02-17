@@ -750,7 +750,7 @@ fn events_to_table(conclusion_events: &[ConclusionEvent]) -> String {
         ) = match event {
             ConclusionEvent::Data(data_event) => (
                 "Data",
-                &data_event.index,
+                &data_event.stream_order,
                 &data_event.init.stream_cid,
                 &data_event.init.stream_type,
                 &data_event.init.controller,
@@ -761,7 +761,7 @@ fn events_to_table(conclusion_events: &[ConclusionEvent]) -> String {
             ),
             ConclusionEvent::Time(time_event) => (
                 "Time",
-                &time_event.index,
+                &time_event.stream_order,
                 &time_event.init.stream_cid,
                 &time_event.init.stream_type,
                 &time_event.init.controller,
