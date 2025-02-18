@@ -76,13 +76,13 @@ jobs:
       - name: Archive Binary
         uses: actions/upload-artifact@v4
         with:
-          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
+          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.bin
           path: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.bin.tar.gz
       - name: Archive Debian Package
         uses: actions/upload-artifact@v4
         if: ${{ matrix.ext == 'deb' }}
         with:
-          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}
+          name: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.deb
           path: ceramic-one_${{ matrix.target }}-${{ matrix.os }}.tar.gz
 
   release:
