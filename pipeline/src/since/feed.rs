@@ -12,8 +12,9 @@ use datafusion::{
     logical_expr::TableProviderFilterPushDown,
     physical_expr::EquivalenceProperties,
     physical_plan::{
-        stream::RecordBatchStreamAdapter, ExecutionMode, ExecutionPlan, Partitioning,
-        PlanProperties,
+        execution_plan::{Boundedness, EmissionType},
+        stream::RecordBatchStreamAdapter,
+        ExecutionPlan, Partitioning, PlanProperties,
     },
     prelude::Expr,
     scalar::ScalarValue,
@@ -120,7 +121,10 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
             properties: PlanProperties::new(
                 EquivalenceProperties::new(schema),
                 Partitioning::UnknownPartitioning(1),
-                ExecutionMode::Unbounded,
+                EmissionType::Incremental,
+                Boundedness::Unbounded {
+                    requires_infinite_memory: false,
+                },
             ),
         }))
     }

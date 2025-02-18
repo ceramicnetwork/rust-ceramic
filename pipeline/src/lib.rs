@@ -30,7 +30,7 @@ use aggregator::{Aggregator, AggregatorHandle};
 use anyhow::Result;
 use concluder::{Concluder, ConcluderHandle};
 use datafusion::{
-    catalog_common::MemorySchemaProvider,
+    catalog::MemorySchemaProvider,
     execution::{config::SessionConfig, context::SessionContext},
     functions_aggregate::first_last::LastValue,
     logical_expr::{AggregateUDF, ScalarUDF},

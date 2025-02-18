@@ -202,13 +202,8 @@ impl TableProvider for CacheTable {
                 return not_impl_err!("replace not implemented for CacheTable yet");
             }
         };
-        let sink = Arc::new(CacheSink::new(self.batches.clone()));
-        Ok(Arc::new(DataSinkExec::new(
-            input,
-            sink,
-            self.schema.clone(),
-            None,
-        )))
+        let sink = Arc::new(CacheSink::new(self.schema.clone(), self.batches.clone()));
+        Ok(Arc::new(DataSinkExec::new(input, sink, None)))
     }
 
     fn get_column_default(&self, column: &str) -> Option<&Expr> {
@@ -218,6 +213,7 @@ impl TableProvider for CacheTable {
 
 /// Implements for writing to a [`CacheTable`]
 struct CacheSink {
+    schema: SchemaRef,
     /// Target locations for writing data
     batches: Vec<PartitionData>,
 }
@@ -242,8 +238,8 @@ impl DisplayAs for CacheSink {
 }
 
 impl CacheSink {
-    fn new(batches: Vec<PartitionData>) -> Self {
-        Self { batches }
+    fn new(schema: SchemaRef, batches: Vec<PartitionData>) -> Self {
+        Self { schema, batches }
     }
 }
 
@@ -255,6 +251,10 @@ impl DataSink for CacheSink {
 
     fn metrics(&self) -> Option<MetricsSet> {
         None
+    }
+
+    fn schema(&self) -> &SchemaRef {
+        &self.schema
     }
 
     #[instrument(skip_all, ret(level = Level::DEBUG), err(level = Level::ERROR))]

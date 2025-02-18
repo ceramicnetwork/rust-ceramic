@@ -866,13 +866,13 @@ impl Handler<StreamStateMsg> for Aggregator {
             .await
             .context("invalid query")?;
 
-        let batch = concat_batches(&state_batch[0].schema(), state_batch.iter())
-            .context("concat batches")?;
-
-        if batch.num_rows() == 0 {
+        let num_rows: usize = state_batch.iter().map(|b| b.num_rows()).sum();
+        if num_rows == 0 {
             // No state for the stream id found
             return Ok(None);
         }
+        let batch = concat_batches(&state_batch[0].schema(), state_batch.iter())
+            .context("concat batches")?;
 
         let data = as_binary_array(
             batch

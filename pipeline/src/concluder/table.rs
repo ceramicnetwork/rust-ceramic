@@ -9,7 +9,9 @@ use datafusion::{
     logical_expr::{Expr, TableProviderFilterPushDown},
     physical_expr::EquivalenceProperties,
     physical_plan::{
-        stream::RecordBatchStreamAdapter, ExecutionMode, ExecutionPlan, PlanProperties,
+        execution_plan::{Boundedness, EmissionType},
+        stream::RecordBatchStreamAdapter,
+        ExecutionPlan, PlanProperties,
     },
     scalar::ScalarValue,
 };
@@ -131,7 +133,8 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> TableProvider for Conclusion
             properties: PlanProperties::new(
                 EquivalenceProperties::new(schema),
                 datafusion::physical_plan::Partitioning::UnknownPartitioning(1),
-                ExecutionMode::Bounded,
+                EmissionType::Incremental,
+                Boundedness::Bounded,
             ),
             highwater_mark: filters
                 .iter()
