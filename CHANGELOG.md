@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.50.0] - 2025-02-17
+## [0.51.0] - 2025-02-18
 
 ### 🚀 Features
 
@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
 
 - Version v0.49.0 ([#660](https://github.com/ceramicnetwork/rust-ceramic/issues/660))
 - Use artifacts v4 as v3 is deprecated ([#661](https://github.com/ceramicnetwork/rust-ceramic/issues/661))
+- Version v0.50.0 ([#664](https://github.com/ceramicnetwork/rust-ceramic/issues/664))
+- Fix name conflict in linux artifacts ([#665](https://github.com/ceramicnetwork/rust-ceramic/issues/665))
 
 ## [0.48.0] - 2025-01-28
 
