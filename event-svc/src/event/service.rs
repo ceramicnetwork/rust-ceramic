@@ -384,7 +384,7 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
-                    stream_order: delivered as u64,
+                    order: delivered as u64,
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -408,7 +408,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            stream_order: delivered as u64,
+                            order: delivered as u64,
                         }))
                     }
                     ceramic_event::unvalidated::Payload::Init(init_event) => {
@@ -428,7 +428,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            stream_order: delivered as u64,
+                            order: delivered as u64,
                         }))
                     }
                 }
@@ -447,7 +447,7 @@ impl EventService {
                     .map_err(|e| {
                         Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
                     })?,
-                    stream_order: delivered as u64,
+                    order: delivered as u64,
                 }))
             }
         }

@@ -94,9 +94,9 @@ impl ModelValidate {
             })
             .transpose()
             .context("previous model definition is not a valid json document")
-            // This is an error because to get to this point we know that the previous model
-            // definition has been validated.
-            .map_to_validation_internal_err());
+            // This is failure because to get to this point we know that the previous model
+            // definition has been validated but not that it passed validation.
+            .map_to_validation_failure());
 
         let model = maybe_fail!(models
             .value(i)

@@ -59,6 +59,7 @@ pub type SessionContextRef = Arc<SessionContext>;
 pub struct PipelineContext {
     session: SessionContextRef,
     object_store_url: Url,
+    object_store: Arc<dyn ObjectStore>,
 }
 
 impl PipelineContext {
@@ -166,11 +167,12 @@ pub async fn pipeline_ctx(object_store: Arc<dyn ObjectStore>) -> Result<Pipeline
     // Register s3 object store, use hardcoded bucket name `pipeline` as the actual bucket name is
     // already known by the object store.
     let url = Url::parse("s3://pipeline")?;
-    ctx.register_object_store(&url, object_store);
+    ctx.register_object_store(&url, object_store.clone());
 
     Ok(PipelineContext {
         session: Arc::new(ctx),
         object_store_url: url,
+        object_store,
     })
 }
 

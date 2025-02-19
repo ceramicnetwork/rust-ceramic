@@ -112,7 +112,10 @@ impl ModelInstance {
             let modified_fields =
                 self.report_modified_locked_fields(v2, fields, patch, event_height);
             if !modified_fields.is_empty() {
-                fail!("Set account relation fields {modified_fields:?} cannot be modified")
+                fail!(modified_fields
+                    .into_iter()
+                    .map(|field| format!("Set account relation field '{field}' cannot be modified"))
+                    .collect::<Vec<String>>())
             }
         }
         ValidationResult::Pass(())

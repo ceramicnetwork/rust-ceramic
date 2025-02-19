@@ -91,7 +91,7 @@ impl Concluder {
         let (handle, task_handle) =
             Self::spawn(size, concluder, metrics.clone(), shutdown.wait_fut());
         // Register tables
-        let last_processed_stream_order = match feed {
+        let last_processed_conclusion_event_order = match feed {
             ConclusionFeedSource::Direct(conclusion_feed) => {
                 ctx.session().register_table(
                     CONCLUSION_EVENTS_TABLE,
@@ -113,19 +113,21 @@ impl Concluder {
                     .await?
                     .aggregate(
                         vec![],
-                        vec![
-                            datafusion::functions_aggregate::min_max::max(col("stream_order"))
-                                .alias("max_stream_order"),
-                        ],
+                        vec![datafusion::functions_aggregate::min_max::max(col(
+                            "conclusion_event_order",
+                        ))
+                        .alias("max_conclusion_event_order")],
                     )?
                     .collect()
                     .await?;
                 batches.first().and_then(|batch| {
-                    batch.column_by_name("max_stream_order").and_then(|col| {
-                        as_uint64_array(&col).ok().and_then(|col| {
-                            arrow::array::Array::is_valid(&col, 0).then(|| col.value(0))
+                    batch
+                        .column_by_name("max_conclusion_event_order")
+                        .and_then(|col| {
+                            as_uint64_array(&col).ok().and_then(|col| {
+                                arrow::array::Array::is_valid(&col, 0).then(|| col.value(0))
+                            })
                         })
-                    })
                 })
             }
         };
@@ -145,7 +147,7 @@ impl Concluder {
             if let Err(err) = poll_new_events(
                 poll_handle,
                 session,
-                last_processed_stream_order,
+                last_processed_conclusion_event_order,
                 metrics,
                 shutdown.wait_fut(),
             )
@@ -200,7 +202,7 @@ impl Handler<SubscribeSinceMsg> for Concluder {
         let ctx = self.ctx.clone();
         rows_since(
             schemas::conclusion_events(),
-            "stream_order",
+            "conclusion_event_order",
             message.projection,
             message.offset,
             message.limit,
@@ -218,7 +220,7 @@ impl Handler<SubscribeSinceMsg> for Concluder {
 async fn poll_new_events(
     handle: ConcluderHandle,
     ctx: SessionContextRef,
-    mut last_processed_stream_order: Option<u64>,
+    mut last_processed_conclusion_event_order: Option<u64>,
     metrics: Metrics,
     mut shutdown: ShutdownSignal,
 ) -> anyhow::Result<()> {
@@ -234,12 +236,12 @@ async fn poll_new_events(
             }
             _ = interval.tick() => {}
         };
-        debug!(last_processed_stream_order, "events since");
+        debug!(last_processed_conclusion_event_order, "events since");
         let mut events = select! {
             _ = &mut shutdown => {
                 return Ok(());
             },
-            events = events_since(&ctx, last_processed_stream_order) => {events?}
+            events = events_since(&ctx, last_processed_conclusion_event_order) => {events?}
         };
         // Consume stream of events since last processed.
         loop {
@@ -252,19 +254,21 @@ async fn poll_new_events(
             match batch {
                 Ok(Some(batch)) => {
                     if batch.num_rows() > 0 {
-                        // Fetch the highest stream_order from the batch
-                        let highest_stream_order = aggregate::max(
-                            as_uint64_array(batch.column_by_name("stream_order").ok_or_else(
+                        // Fetch the highest conclusion_event_order from the batch
+                        let highest_conclusion_event_order = aggregate::max(
+                            as_uint64_array(batch.column_by_name("conclusion_event_order").ok_or_else(
                                 || {
                                     anyhow::anyhow!(
-                                        "stream_order column should exist on events record batch"
+                                        "conclusion_event_order column should exist on events record batch"
                                     )
                                 },
                             )?)
-                            .context("stream_order column should be a uint64")?,
+                            .context("conclusion_event_order column should be a uint64")?,
                         );
-                        if let Some(highest_stream_order) = highest_stream_order {
-                            last_processed_stream_order = Some(highest_stream_order);
+                        if let Some(highest_conclusion_event_order) = highest_conclusion_event_order
+                        {
+                            last_processed_conclusion_event_order =
+                                Some(highest_conclusion_event_order);
                         }
 
                         // Send batch to actor
@@ -299,7 +303,8 @@ async fn events_since(
         .await?
         .select(vec![wildcard()])?;
     if let Some(offset) = offset {
-        conclusion_events = conclusion_events.filter(col("stream_order").gt(lit(offset)))?;
+        conclusion_events =
+            conclusion_events.filter(col("conclusion_event_order").gt(lit(offset)))?;
     }
     Ok(conclusion_events.execute_stream().await?)
 }
@@ -307,7 +312,7 @@ async fn events_since(
 /// Request the events since a highwater mark
 #[derive(Debug)]
 pub struct EventsSinceMsg {
-    /// Produce message with an stream_order greater than the highwater_mark.
+    /// Produce message with an conclusion_event_order greater than the highwater_mark.
     pub highwater_mark: u64,
 }
 impl Message for EventsSinceMsg {
@@ -394,7 +399,7 @@ mod tests {
             .times(2)
             .returning(|_h, _l| {
                 Ok(vec![ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -420,7 +425,7 @@ mod tests {
             .with(predicate::eq(1), predicate::always())
             .return_once(|_h, _l| {
                 Ok(vec![ConclusionEvent::Time(ConclusionTime {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
                     )
@@ -449,7 +454,7 @@ mod tests {
             .return_once(|_h, _l| {
                 Ok(vec! [
                     ConclusionEvent::Data(ConclusionData {
-                        stream_order: 3,
+                        order: 3,
                         event_cid: Cid::from_str("baeabeifwi4ddwafoqe6htkx3g5gtjz5adapj366w6mraut4imk2ljwu3du")
                             .unwrap(),
                         init: ConclusionInit {

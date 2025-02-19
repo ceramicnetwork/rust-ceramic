@@ -29,8 +29,8 @@ const DEFAULT_BATCH_SIZE: i64 = 10_000;
 pub trait ConclusionFeed: std::fmt::Debug + Send + Sync {
     /// Report the maximum highwater_mark.
     async fn max_highwater_mark(&self) -> anyhow::Result<Option<u64>>;
-    /// Produce a set of conclusion events up to the limit with an stream_order greater than the highwater_mark
-    /// Event must be returned in stream_order order.
+    /// Produce a set of conclusion events up to the limit with an conclusion_event_order greater than the highwater_mark
+    /// Event must be returned in conclusion_event_order order.
     async fn conclusion_events_since(
         &self,
         highwater_mark: i64,
@@ -77,7 +77,7 @@ impl<T> ConclusionFeedTable<T> {
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
-                .is_some_and(|column| column.name == "stream_order")
+                .is_some_and(|column| column.name == "conclusion_event_order")
                 .then(|| {
                     if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
                         highwater_mark.to_owned()
@@ -247,7 +247,7 @@ impl<T: ConclusionFeed + std::fmt::Debug + 'static> ExecutionPlan for FeedExec<T
                     break
                 }
                 remaining = remaining.map(|r| r - count);
-                highwater_mark = events[events.len()-1].stream_order() as i64;
+                highwater_mark = events[events.len()-1].order() as i64;
             }
         };
         let stream = stream.map_err(|err: anyhow::Error| exec_datafusion_err!("{err}"));
@@ -301,7 +301,7 @@ mod tests {
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
                 .unwrap()
-                .select_columns(&["stream_order"])
+                .select_columns(&["conclusion_event_order"])
                 .unwrap()
                 .collect()
                 .await
@@ -309,18 +309,18 @@ mod tests {
         )
         .unwrap();
         expect![[r#"
-            +--------------+
-            | stream_order |
-            +--------------+
-            | 1            |
-            | 2            |
-            | 3            |
-            | 4            |
-            | 5            |
-            | 6            |
-            | 7            |
-            | 8            |
-            +--------------+"#]]
+            +------------------------+
+            | conclusion_event_order |
+            +------------------------+
+            | 1                      |
+            | 2                      |
+            | 3                      |
+            | 4                      |
+            | 5                      |
+            | 6                      |
+            | 7                      |
+            | 8                      |
+            +------------------------+"#]]
         .assert_eq(&data.to_string());
     }
 
@@ -344,7 +344,7 @@ mod tests {
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
                 .unwrap()
-                .select_columns(&["stream_order"])
+                .select_columns(&["conclusion_event_order"])
                 .unwrap()
                 .limit(0, Some(LIMIT))
                 .unwrap()
@@ -354,15 +354,15 @@ mod tests {
         )
         .unwrap();
         expect![[r#"
-            +--------------+
-            | stream_order |
-            +--------------+
-            | 1            |
-            | 2            |
-            | 3            |
-            | 4            |
-            | 5            |
-            +--------------+"#]]
+            +------------------------+
+            | conclusion_event_order |
+            +------------------------+
+            | 1                      |
+            | 2                      |
+            | 3                      |
+            | 4                      |
+            | 5                      |
+            +------------------------+"#]]
         .assert_eq(&data.to_string());
     }
     #[test(tokio::test)]
@@ -380,7 +380,7 @@ mod tests {
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
                 .unwrap()
-                .select_columns(&["stream_order"])
+                .select_columns(&["conclusion_event_order"])
                 .unwrap()
                 .limit(0, Some(LIMIT))
                 .unwrap()
@@ -390,13 +390,13 @@ mod tests {
         )
         .unwrap();
         expect![[r#"
-            +--------------+
-            | stream_order |
-            +--------------+
-            | 1            |
-            | 2            |
-            | 3            |
-            +--------------+"#]]
+            +------------------------+
+            | conclusion_event_order |
+            +------------------------+
+            | 1                      |
+            | 2                      |
+            | 3                      |
+            +------------------------+"#]]
         .assert_eq(&data.to_string());
     }
     #[test(tokio::test)]
@@ -413,7 +413,7 @@ mod tests {
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
                 .unwrap()
-                .select_columns(&["stream_order"])
+                .select_columns(&["conclusion_event_order"])
                 .unwrap()
                 .limit(0, Some(BATCH_SIZE as usize))
                 .unwrap()
@@ -423,23 +423,24 @@ mod tests {
         )
         .unwrap();
         expect![[r#"
-            +--------------+
-            | stream_order |
-            +--------------+
-            | 1            |
-            | 2            |
-            | 3            |
-            +--------------+"#]]
+            +------------------------+
+            | conclusion_event_order |
+            +------------------------+
+            | 1                      |
+            | 2                      |
+            | 3                      |
+            +------------------------+"#]]
         .assert_eq(&data.to_string());
     }
 
-    fn events(start_stream_order: u64, count: i64) -> Vec<ConclusionEvent> {
+    fn events(start_conclusion_event_order: u64, count: i64) -> Vec<ConclusionEvent> {
         (0..count)
             .into_iter()
             .map(|i| {
-                // Use the same event data as all we care about is the count and stream_order
+                // Use the same event data as all we care about is the count and
+                // conclusion_event_order
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: start_stream_order + i as u64,
+                    order: start_conclusion_event_order + i as u64,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )

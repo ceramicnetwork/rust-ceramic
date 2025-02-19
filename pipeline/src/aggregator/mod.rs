@@ -16,6 +16,7 @@ mod model_patch;
 mod model_validate;
 mod validation;
 
+use object_store::ObjectStore;
 pub use validation::{ModelAccountRelationV2, ModelDefinition};
 
 use std::{
@@ -61,7 +62,7 @@ use datafusion::{
     prelude::{array_empty, cast, when, wildcard, DataFrame, SessionContext},
     sql::TableReference,
 };
-use futures::TryStreamExt as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use model_instance_patch::ModelInstancePatch;
 use model_patch::ModelPatch;
 use shutdown::{Shutdown, ShutdownSignal};
@@ -93,7 +94,8 @@ const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_pers
 // need to change while the logical version remains the same.
 const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev2/event_states/";
 
-//const PENDING_CONCLUSION_EVENTS_TABLE: &str = "ceramic._internal.pending_conclusion_events_table";
+const PENDING_EVENT_STATES_TABLE: &str = "ceramic._internal.pending_event_states";
+const PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev0/pending_event_states/";
 
 // Maximum number of rows to cache in memory before writing to object store.
 const DEFAULT_MAX_CACHED_ROWS: usize = 10_000;
@@ -106,6 +108,7 @@ pub struct Aggregator {
     broadcast_tx: broadcast::Sender<RecordBatch>,
     max_cached_rows: usize,
     order: u64,
+    object_store: Arc<dyn ObjectStore>,
 }
 
 impl std::fmt::Debug for Aggregator {
@@ -129,7 +132,6 @@ impl Aggregator {
     ) -> Result<(AggregatorHandle, Vec<JoinHandle<()>>)> {
         // Register event_states tables
         let file_format = ParquetFormat::default().with_enable_pruning(true);
-
         let listing_options = ListingOptions::new(Arc::new(file_format))
             .with_file_extension(".parquet")
             .with_table_partition_cols(vec![("event_cid_partition".to_owned(), DataType::Int32)])
@@ -169,6 +171,25 @@ impl Aggregator {
                 .into_view(),
         )?;
 
+        // Register event_states tables
+        let file_format = ParquetFormat::default().with_enable_pruning(true);
+        let listing_options =
+            ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
+
+        // Set the path within the bucket for the event_states table
+        let mut pending_event_states_url = ctx.object_store_url.clone();
+        pending_event_states_url.set_path(PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH);
+
+        // Register pending_event_states as a listing table
+        ctx.session().register_table(
+            PENDING_EVENT_STATES_TABLE,
+            Arc::new(ListingTable::try_new(
+                ListingTableConfig::new(ListingTableUrl::parse(pending_event_states_url)?)
+                    .with_listing_options(listing_options)
+                    .with_schema(schemas::pending_event_states()),
+            )?),
+        )?;
+
         // Query for max event_state_order in persistent event_states, this is where we should start
         // the new order values.
         let batches = ctx
@@ -178,20 +199,22 @@ impl Aggregator {
             .aggregate(
                 vec![],
                 vec![
-                    datafusion::functions_aggregate::min_max::max(col("stream_order"))
-                        .alias("max_stream_order"),
+                    datafusion::functions_aggregate::min_max::max(col("conclusion_event_order"))
+                        .alias("max_conclusion_event_order"),
                     datafusion::functions_aggregate::min_max::max(col("event_state_order"))
                         .alias("max_event_state_order"),
                 ],
             )?
             .collect()
             .await?;
-        let max_stream_order = batches.first().and_then(|batch| {
-            batch.column_by_name("max_stream_order").and_then(|col| {
-                as_uint64_array(&col)
-                    .ok()
-                    .and_then(|col| col.is_valid(0).then(|| col.value(0)))
-            })
+        let max_conclusion_event_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("max_conclusion_event_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
         });
         let max_event_state_order = batches.first().and_then(|batch| {
             batch
@@ -210,13 +233,19 @@ impl Aggregator {
             broadcast_tx,
             max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
             order: max_event_state_order.unwrap_or_default(),
+            object_store: ctx.object_store.clone(),
         };
 
         let (handle, task_handle) = Self::spawn(size, aggregator, metrics, shutdown.wait_fut());
         let h = handle.clone();
         let sub_handle = tokio::spawn(async move {
-            if let Err(err) =
-                concluder_subscription(shutdown.wait_fut(), concluder, h, max_stream_order).await
+            if let Err(err) = concluder_subscription(
+                shutdown.wait_fut(),
+                concluder,
+                h,
+                max_conclusion_event_order,
+            )
+            .await
             {
                 error!(%err, "aggregator actor poll_concluder task failed");
             }
@@ -233,7 +262,7 @@ impl Aggregator {
     }
 
     // Process a batch of conclusion events, producing a new document state for each input event.
-    // The conclusion event must be ordered by "stream_order".
+    // The conclusion event must be ordered by "conclusion_event_order".
     // The output event states are ordered by "event_state_order".
     //
     // The process has two main phases:
@@ -250,38 +279,132 @@ impl Aggregator {
         let events_with_previous = self
             .join_event_states(self.ctx.read_batch(conclusion_events)?)
             .await
-            .context("joining events with previous states")?;
-        let models = self
-            .ctx
-            // NOTE: Cloning a record batch is cheap as it is immutable
-            .read_batches(events_with_previous.clone())?
+            .context("joining events with previous states")?
+            .cache()
+            .await
+            .context("caching events joined with previous states")?;
+        // NOTE: Cloning a cached data frame is cheap as the data itself is not cloned.
+        let models = events_with_previous
+            .clone()
             .filter(col("stream_type").eq(lit(StreamIdType::Model as u8)))?;
         // Completely process models first for the case when mids may reference a newly
         // created/updated model.
-        let models = self.patch_models(models).await?;
-        let models = self
-            .validate_models(models)
-            .context("validating models")?
-            .collect()
-            .await
-            .context("executing models")?;
+        let models = self.patch_models(models).await.context("patching models")?;
+        let models = self.validate_models(models).context("validating models")?;
         let mut models = self
             .store_event_states(models)
             .await
             .context("storing models")?;
 
-        let mids = self
-            .ctx
-            .read_batches(events_with_previous)?
+        let pending = self.fetch_pending(models.clone()).await?;
+        // Find any pending mids that can now be processed
+        let ready_mids = pending
+            .clone()
+            .filter(col("model_definition").is_not_null())?;
+        let pending_mids = pending
+            .filter(col("model_definition").is_null())?
+            .drop_columns(&["model_definition"])?;
+
+        let mids = events_with_previous
             .filter(col("stream_type").eq(lit(StreamIdType::ModelInstanceDocument as u8)))?;
-        let mids = self.patch_model_instances(mids).await?;
         let mids = self
-            .validate_model_instances(mids)
+            .patch_model_instances(mids)
             .await
-            .context("validating mids")?
-            .collect()
+            .context("patching mids")?;
+        let mids = self
+            .join_with_models(mids)
             .await
-            .context("executing mids")?;
+            .context("join mids with models")?
+            .cache()
+            .await
+            .context("caching mids with their models")?;
+
+        let pending_mids = mids
+            .clone()
+            .filter(col("model_definition").is_null())?
+            .drop_columns(&["event_cid_partition", "model_definition"])?
+            .union(pending_mids)?;
+
+        let ready_mids = mids
+            .clone()
+            .filter(col("model_definition").is_not_null())?
+            .union(
+                ready_mids
+                    .select(vec![
+                        col("conclusion_event_order"),
+                        col("stream_cid"),
+                        col("stream_type"),
+                        col("controller"),
+                        col("dimensions"),
+                        col("event_cid"),
+                        cid_part(col("event_cid")).alias("event_cid_partition"),
+                        col("event_type"),
+                        col("event_height"),
+                        col("data"),
+                        col("patch"),
+                        col("model_version"),
+                        col("model_definition"),
+                    ])
+                    .context("select ready mids")?,
+            )
+            .context("union ready mids")?;
+
+        // HACK: Explicitly delete old files in the pending_event_states table.
+        //
+        // We can do this because we know that this task is the only reader and writer to the
+        // table.
+        //
+        // This hack is being used because alternatives all hit dead ends:
+        //  1. https://github.com/delta-io/delta-rs uses global state to register object_store instances and so tests were
+        //     difficult to isolate
+        //  2. https://github.com/apache/iceberg-rust/tree/main does not yet support deletes
+        //     although it is in-progress https://github.com/apache/iceberg-rust/issues/630
+        //  3. https://github.com/JanKaul/iceberg-rust/tree/main supports deletes but does not
+        //     support Map or Dictionary types, we could upstream a change there but it seems like
+        //     long term will be to use option 2 once deletes are supported.
+        //
+        // Updating the pending_event_states table is a three step process:
+        //  1. List all existing files
+        //  2. Write new files
+        //  3. Delete previously existing files.
+        //
+        //  If we fail in between any of these steps we will end up with duplicate rows, but not
+        //  missing rows. The logic above can handles the duplicate rows explicitly.
+        //  Additionally a successful pass after a failure will remove all duplicates.
+
+        let existing_files = self
+            .object_store
+            .list(Some(&PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH.into()))
+            .map_ok(|f| f.location)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let stats = pending_mids
+            .write_table(PENDING_EVENT_STATES_TABLE, DataFrameWriteOptions::new())
+            .await
+            .context("writing pending events")?;
+
+        self.object_store
+            .delete_stream(tokio_stream::iter(existing_files).map(Ok).boxed())
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let total_pending_events = stats
+            .first()
+            .and_then(|batch| {
+                batch.column_by_name("count").and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+            })
+            .unwrap_or_default();
+        tracing::debug!(total_pending_events, "pending stats");
+
+        let mids = self
+            .validate_model_instances(ready_mids)
+            .await
+            .context("validating mids")?;
         let mut mids = self
             .store_event_states(mids)
             .await
@@ -295,7 +418,7 @@ impl Aggregator {
 
     // Joins events with their previous state if any
     #[instrument(skip_all)]
-    async fn join_event_states(&self, conclusion_events: DataFrame) -> Result<Vec<RecordBatch>> {
+    async fn join_event_states(&self, conclusion_events: DataFrame) -> Result<DataFrame> {
         let event_states = self
             .ctx
             .table(EVENT_STATES_TABLE)
@@ -317,7 +440,7 @@ impl Aggregator {
             // MID only ever use the first previous, so we can optimize the join by selecting the
             // first element of the previous array.
             .select(vec![
-                col("stream_order"),
+                col("conclusion_event_order"),
                 col("stream_cid"),
                 col("stream_type"),
                 col("controller"),
@@ -340,7 +463,7 @@ impl Aggregator {
             )
             .context("setup join")?
             .select(vec![
-                col("stream_order"),
+                col("conclusion_event_order"),
                 anon_col("stream_cid").alias("stream_cid"),
                 anon_col("stream_type").alias("stream_type"),
                 anon_col("controller").alias("controller"),
@@ -352,9 +475,62 @@ impl Aggregator {
                 col("previous_height"),
                 anon_col("data").alias("data"),
                 col("event_cid_partition"),
-            ])?
-            .collect()
-            .await?)
+            ])?)
+    }
+
+    // Retrieves all pending events and joins them with the models if they are now available.
+    #[instrument(skip_all)]
+    async fn fetch_pending(&self, models: Vec<RecordBatch>) -> Result<DataFrame> {
+        self.ctx
+            .table(PENDING_EVENT_STATES_TABLE)
+            .await
+            .context("read pending events")?
+            // Make sure we have a single row per event in case our hack below fails to delete old
+            // data.
+            .distinct_on(
+                vec![col("event_cid")],
+                vec![
+                    col("conclusion_event_order"),
+                    col("stream_cid"),
+                    col("stream_type"),
+                    col("controller"),
+                    col("dimensions"),
+                    col("event_cid"),
+                    col("event_type"),
+                    col("event_height"),
+                    col("data"),
+                    col("patch"),
+                    col("model_version"),
+                ],
+                None,
+            )?
+            .join_on(
+                self.ctx
+                    .read_batches(models)?
+                    .select_columns(&["event_cid", "data"])?
+                    .with_column_renamed("event_cid", "model_cid")?
+                    .with_column_renamed("data", "model_definition")?,
+                JoinType::Left,
+                [col("model_version").eq(col("model_cid"))],
+            )?
+            .select_columns(&[
+                "conclusion_event_order",
+                "stream_cid",
+                "stream_type",
+                "controller",
+                "dimensions",
+                "event_cid",
+                "event_type",
+                "event_height",
+                "data",
+                "patch",
+                "model_version",
+                "model_definition",
+            ])
+            .context("select pending events")?
+            .cache()
+            .await
+            .context("read pending events")
     }
 
     // Applies patches to models
@@ -372,13 +548,13 @@ impl Aggregator {
                 ],
             ))
             .partition_by(vec![col("stream_cid")])
-            .order_by(vec![col("stream_order").sort(true, true)])
+            .order_by(vec![col("conclusion_event_order").sort(true, true)])
             .build()?
             .alias("patched")])?
             .unnest_columns(&["patched"])?
             // Rename columns to match event_states table schema
             .select(vec![
-                col("stream_order"),
+                col("conclusion_event_order"),
                 col("stream_cid"),
                 col("stream_type"),
                 col("controller"),
@@ -406,7 +582,7 @@ impl Aggregator {
     #[instrument(skip_all)]
     fn validate_models(&self, models: DataFrame) -> Result<DataFrame> {
         Ok(models.select(vec![
-            col("stream_order"),
+            col("conclusion_event_order"),
             col("stream_cid"),
             col("stream_type"),
             col("controller"),
@@ -439,14 +615,14 @@ impl Aggregator {
                 ],
             ))
             .partition_by(vec![col("stream_cid")])
-            .order_by(vec![col("stream_order").sort(true, true)])
+            .order_by(vec![col("conclusion_event_order").sort(true, true)])
             .build()?
             .alias("patched")])?
             // Flatten struct from model_instance_patch
             .unnest_columns(&["patched"])
             .context("unnest_columns")?
             .select(vec![
-                col("stream_order"),
+                col("conclusion_event_order"),
                 col("stream_cid"),
                 col("stream_type"),
                 col("controller"),
@@ -490,7 +666,7 @@ impl Aggregator {
             .context("select")
     }
     #[instrument(skip_all)]
-    async fn validate_model_instances(&self, model_instances: DataFrame) -> Result<DataFrame> {
+    async fn join_with_models(&self, model_instances: DataFrame) -> Result<DataFrame> {
         let states = self
             .ctx
             .table(EVENT_STATES_TABLE)
@@ -509,13 +685,33 @@ impl Aggregator {
             )
             .context("join")?
             .select(vec![
-                anon_col("stream_order"),
+                anon_col("conclusion_event_order"),
                 anon_col("stream_cid"),
                 anon_col("stream_type"),
                 anon_col("controller"),
                 anon_col("dimensions"),
                 anon_col("event_cid"),
+                anon_col("event_cid_partition"),
                 anon_col("event_type"),
+                col("event_height"),
+                col("data"),
+                col("patch"),
+                col("model_version"),
+                col("model_definition"),
+            ])
+            .context("select")
+    }
+    #[instrument(skip_all)]
+    async fn validate_model_instances(&self, model_instances: DataFrame) -> Result<DataFrame> {
+        model_instances
+            .select(vec![
+                col("conclusion_event_order"),
+                col("stream_cid"),
+                col("stream_type"),
+                col("controller"),
+                col("dimensions"),
+                col("event_cid"),
+                col("event_type"),
                 col("event_height"),
                 col("data"),
                 model_instance_validate::model_instance_validate(
@@ -527,20 +723,14 @@ impl Aggregator {
                     dimension_extract(col("dimensions"), lit("unique")),
                 )
                 .alias("validation_errors"),
-                anon_col("event_cid_partition"),
+                col("event_cid_partition"),
             ])
             .context("select")
     }
 
     #[instrument(skip_all)]
-    async fn store_event_states(
-        &mut self,
-        event_states: Vec<RecordBatch>,
-    ) -> Result<Vec<RecordBatch>> {
-        let row_count = event_states
-            .iter()
-            .map(|batch| batch.num_rows())
-            .sum::<usize>();
+    async fn store_event_states(&mut self, event_states: DataFrame) -> Result<Vec<RecordBatch>> {
+        let row_count = event_states.clone().count().await?;
         if row_count == 0 {
             return Ok(vec![RecordBatch::new_empty(
                 schemas::event_states_partitioned(),
@@ -550,9 +740,7 @@ impl Aggregator {
         let start = self.order;
         self.order += row_count as u64;
         // Assign an insertion order value to the new event state rows
-        let ordered = self
-            .ctx
-            .read_batches(event_states)?
+        let ordered = event_states
             .window(vec![row_number()
                 .order_by(vec![
                     // Ensure that the order preserves stream order and is deterministic.
@@ -564,10 +752,12 @@ impl Aggregator {
                     col("event_height").sort(true, true),
                     col("event_cid").sort(true, true),
                 ])
-                .build()?
-                .alias("row_num")])?
+                .build()
+                .context("row number")?
+                .alias("row_num")])
+            .context("window")?
             .select(vec![
-                col("stream_order"),
+                col("conclusion_event_order"),
                 // Compute new order value for the event_states table
                 (col("row_num") + lit(start)).alias("event_state_order"),
                 col("stream_cid"),
@@ -580,12 +770,14 @@ impl Aggregator {
                 col("data"),
                 col("validation_errors"),
                 col("event_cid_partition"),
-            ])?
-            .collect()
-            .await?;
+            ])
+            .context("select")?
+            .cache()
+            .await
+            .context("adding event_state_order")?;
         // Write states to the in memory event_states table
-        self.ctx
-            .read_batches(ordered.clone())?
+        ordered
+            .clone()
             .write_table(
                 EVENT_STATES_MEM_TABLE,
                 DataFrameWriteOptions::new()
@@ -599,7 +791,8 @@ impl Aggregator {
             .table(EVENT_STATES_MEM_TABLE)
             .await?
             .count()
-            .await?;
+            .await
+            .context("count mem table")?;
         // If we have enough data cached in memory write it out to persistent store
         if count >= self.max_cached_rows {
             self.ctx
@@ -614,16 +807,19 @@ impl Aggregator {
                 .context("writing to persistent table")?;
             // Clear all data in the memory batch, by writing an empty batch
             self.ctx
-                .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))?
+                .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))
+                .context("reading empty batch")?
                 .write_table(
                     EVENT_STATES_MEM_TABLE,
                     DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
                 )
                 .await
-                .context("clearing mem table")
-                .unwrap();
+                .context("clearing mem table")?;
         }
-        Ok(ordered)
+        Ok(ordered
+            .collect()
+            .await
+            .context("collecting ordered events")?)
     }
 }
 
@@ -1014,8 +1210,7 @@ mod tests {
     async fn init_with_concluder(
         mock_concluder: MockConcluder,
     ) -> anyhow::Result<TestContext<AggregatorHandle>> {
-        let object_store = Arc::new(InMemory::new());
-        init_with_object_store(mock_concluder, object_store, None).await
+        init_with_object_store(mock_concluder, Arc::new(InMemory::new()), None).await
     }
     async fn init_with_object_store(
         mock_concluder: MockConcluder,
@@ -1024,7 +1219,7 @@ mod tests {
     ) -> anyhow::Result<TestContext<AggregatorHandle>> {
         let metrics = Metrics::register(&mut Registry::default());
         let shutdown = Shutdown::new();
-        let pipeline_ctx = pipeline_ctx(object_store.clone()).await?;
+        let pipeline_ctx = pipeline_ctx(object_store).await?;
         let (aggregator, handles) = Aggregator::spawn_new(
             1_000,
             &pipeline_ctx,
@@ -1144,7 +1339,7 @@ mod tests {
         };
         vec![
             ConclusionEvent::Data(ConclusionData {
-                stream_order: 0,
+                order: 0,
                 event_cid: model_stream_id.cid,
                 init: ConclusionInit {
                     stream_cid: model_stream_id.cid,
@@ -1167,7 +1362,7 @@ mod tests {
                 .into(),
             }),
             ConclusionEvent::Data(ConclusionData {
-                stream_order: 1,
+                order: 1,
                 event_cid: Cid::from_str(
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
@@ -1189,7 +1384,7 @@ mod tests {
                 .into(),
             }),
             ConclusionEvent::Time(ConclusionTime {
-                stream_order: 2,
+                order: 2,
                 event_cid: Cid::from_str(
                     "baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq",
                 )
@@ -1201,7 +1396,7 @@ mod tests {
                 .unwrap()],
             }),
             ConclusionEvent::Data(ConclusionData {
-                stream_order: 3,
+                order: 3,
                 event_cid: Cid::from_str(
                     "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
                 )
@@ -1233,7 +1428,7 @@ mod tests {
         data: &str,
     ) -> ConclusionEvent {
         ConclusionEvent::Data(ConclusionData {
-            stream_order: events.iter().map(|e| e.stream_order()).max().unwrap_or(0) + 1,
+            order: events.iter().map(|e| e.order()).max().unwrap_or(0) + 1,
             event_cid: cid,
             init: event.init().clone(),
             previous: vec![event.event_cid()],
@@ -1248,7 +1443,7 @@ mod tests {
     // Append a data event that is an init event for the stream
     fn append_init(events: &mut Vec<ConclusionEvent>, cid: Cid, init: ConclusionInit, data: &str) {
         events.push(ConclusionEvent::Data(ConclusionData {
-            stream_order: events.iter().map(|e| e.stream_order()).max().unwrap_or(0) + 1,
+            order: events.iter().map(|e| e.order()).max().unwrap_or(0) + 1,
             event_cid: cid,
             init,
             previous: vec![],
@@ -1336,7 +1531,7 @@ mod tests {
         let ctx = init().await.unwrap();
         let conclusion_events =
             conclusion_events_to_record_batch(&[ConclusionEvent::Data(ConclusionData {
-                stream_order: 0,
+                order: 0,
                 event_cid: Cid::from_str(
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
@@ -1587,6 +1782,73 @@ mod tests {
             | 5                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |
             | 6                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeic5wirrpbvrghm4icaoezllghar5v4z6usf6zqepfwj7hxznvwh3e | 0          | 3            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":0,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                      | []                |
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+    }
+
+    #[test(tokio::test)]
+    async fn instance_before_model_single_pass() {
+        // Test that an instance can occur before its model and be correctly reordered when they are
+        // in the same batch.
+        let mut events = model_and_mids_events();
+        // Move model event after instance events
+        events.swap(0, 2);
+
+        let event_states = do_test(conclusion_events_to_record_batch(&events).unwrap())
+            .await
+            .unwrap();
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+    }
+    #[test(tokio::test)]
+    async fn instance_before_model_multiple_passes() {
+        // Test that an instance can occur before its model and be correctly reordered when they are
+        // in separate batches.
+        let events = model_and_mids_events();
+        let ctx = init().await.unwrap();
+
+        // Send events, do no expect to get any new events back as nothing can be processes yet.
+        ctx.actor_handle
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(&events[1..2]).unwrap(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        let event_states = do_pass(
+            ctx.actor_handle.clone(),
+            None,
+            Some(conclusion_events_to_record_batch(&events[0..1]).unwrap()),
+        )
+        .await
+        .unwrap();
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+        let event_states = do_pass(
+            ctx.actor_handle.clone(),
+            Some(2),
+            Some(conclusion_events_to_record_batch(&events[2..]).unwrap()),
+        )
+        .await
+        .unwrap();
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                     | validation_errors |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}} | []                |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}   | []                |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+----------------------------------------------------------------------------------------------------------+-------------------+"#]].assert_eq(&event_states.to_string());
+        ctx.shutdown().await.unwrap();
     }
 
     //---------------------------------------------------------------
@@ -2277,7 +2539,7 @@ mod tests {
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 0,
+                    order: 0,
                     event_cid: model_stream_id.cid,
                     init: ConclusionInit {
                         stream_cid: model_stream_id.cid,
@@ -2297,7 +2559,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -2312,7 +2574,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
                     )
@@ -2397,7 +2659,7 @@ mod tests {
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 0,
+                    order: 0,
                     event_cid: model_stream_id.cid,
                     init: ConclusionInit {
                         stream_cid: model_stream_id.cid,
@@ -2417,7 +2679,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -2436,7 +2698,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
                     )
@@ -2505,7 +2767,7 @@ mod tests {
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 0,
+                    order: 0,
                     event_cid: model_stream_id.cid,
                     init: ConclusionInit {
                         stream_cid: model_stream_id.cid,
@@ -2525,7 +2787,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -2544,7 +2806,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em",
                     )
@@ -2612,7 +2874,7 @@ mod tests {
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 0,
+                    order: 0,
                     event_cid: model_stream_id.cid,
                     init: ConclusionInit {
                         stream_cid: model_stream_id.cid,
@@ -2632,7 +2894,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -2647,7 +2909,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy",
                     )
@@ -2685,7 +2947,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 3,
+                    order: 3,
                     event_cid: Cid::from_str(
                         "baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm",
                     )
@@ -2758,7 +3020,7 @@ mod tests {
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 0,
+                    order: 0,
                     event_cid: model_stream_id.cid,
                     init: ConclusionInit {
                         stream_cid: model_stream_id.cid,
@@ -2778,7 +3040,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 1,
+                    order: 1,
                     event_cid: Cid::from_str(
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
@@ -2793,7 +3055,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 2,
+                    order: 2,
                     event_cid: Cid::from_str(
                         "baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy",
                     )
@@ -2831,7 +3093,7 @@ mod tests {
                     .into(),
                 }),
                 ConclusionEvent::Data(ConclusionData {
-                    stream_order: 3,
+                    order: 3,
                     event_cid: Cid::from_str(
                         "baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm",
                     )
@@ -2858,14 +3120,14 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+
-            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | validation_errors                                            |
-            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+
-            | 1                 | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"fields":["creator"],"type":"set"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} | []                                                           |
-            | 2                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":null,"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | []                                                           |
-            | 3                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"alice","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | []                                                           |
-            | 4                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm | 0          | 2            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | [Set account relation fields ["creator"] cannot be modified] |
-            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | validation_errors                                         |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------+
+            | 1                 | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"fields":["creator"],"type":"set"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} | []                                                        |
+            | 2                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":null,"metadata":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | []                                                        |
+            | 3                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeigbuxpmhj2fkwe2oeqflwz6xair5i3sxnoyqzeh5rly25l3g5rlzy | 0          | 1            | {"metadata":{},"content":{"blue":255,"creator":"alice","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | []                                                        |
+            | 4                 | baeabeihrpnqmppjqdohl2stvfevu7jn57zjqzqb4dflbl4ettogmt56xoy | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce01020100122031c0f042da99464be96f4b0d29afc5e9406219cb2885152105b476f1dd3ccc38, unique: 616c696365} | baeabeigyxnmgyi6mekyqbx3rpp5fi7chvl5tp6vjxaumsqgaa5ggqbq4lm | 0          | 2            | {"metadata":{},"content":{"blue":255,"creator":"sally","green":255,"red":255}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | [Set account relation field 'creator' cannot be modified] |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------------------------------------------------+"#]].assert_eq(&event_states.to_string());
     }
     #[test(tokio::test)]
     async fn model_definition_set_relation_no_fields() {
@@ -2887,7 +3149,7 @@ mod tests {
                 .unwrap();
         let event_states = do_test(
             conclusion_events_to_record_batch(&vec![ConclusionEvent::Data(ConclusionData {
-                stream_order: 0,
+                order: 0,
                 event_cid: model_stream_id.cid,
                 init: ConclusionInit {
                     stream_cid: model_stream_id.cid,

@@ -17,7 +17,6 @@ ceramic-core.workspace = true
 ceramic-event.workspace = true
 ceramic-metadata.workspace = true
 ceramic-pipeline.workspace = true
-datafusion.workspace = true
 futures.workspace = true
 ipld-core.workspace = true
 ceramic-car.workspace = true

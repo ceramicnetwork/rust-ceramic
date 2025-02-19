@@ -6,6 +6,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Fields, SchemaBuilder, Schem
 static CONCLUSION_EVENTS: OnceLock<SchemaRef> = OnceLock::new();
 static EVENT_STATES: OnceLock<SchemaRef> = OnceLock::new();
 static EVENT_STATES_PARTITIONED: OnceLock<SchemaRef> = OnceLock::new();
+static PENDING_EVENT_STATES: OnceLock<SchemaRef> = OnceLock::new();
 
 /// The `conclusion_events` table contains the raw events annotated with conclusions about each
 /// event.
@@ -15,7 +16,7 @@ pub fn conclusion_events() -> SchemaRef {
             SchemaBuilder::from(&Fields::from(vec![
                 // An order that ensures an event row comes after all rows in its stream
                 // reachable from the row itself.
-                Field::new("stream_order", DataType::UInt64, false),
+                Field::new("conclusion_event_order", DataType::UInt64, false),
                 Field::new("stream_cid", DataType::Binary, false),
                 Field::new("stream_type", DataType::UInt8, false),
                 Field::new("controller", DataType::Utf8, false),
@@ -68,7 +69,7 @@ pub fn event_states() -> SchemaRef {
             SchemaBuilder::from(&Fields::from(vec![
                 // An order that ensures an event row comes after all rows in its stream
                 // reachable from the row itself.
-                Field::new("stream_order", DataType::UInt64, false),
+                Field::new("conclusion_event_order", DataType::UInt64, false),
                 // An order that ensures an event state row comes after all rows needed to
                 // construct its state. This order is stream type dependent, but holds for all
                 // stream types.
@@ -135,6 +136,56 @@ pub fn event_states_partitioned() -> SchemaRef {
                     ))])
                     .collect::<Vec<_>>(),
             ))
+            .finish(),
+        )
+    }))
+}
+
+/// The `pending_event_states` table contains the intermmediate events for mids where their model
+/// event is not yet processed.
+pub fn pending_event_states() -> SchemaRef {
+    Arc::clone(PENDING_EVENT_STATES.get_or_init(|| {
+        Arc::new(
+            SchemaBuilder::from(&Fields::from(vec![
+                // An order that ensures an event row comes after all rows in its stream
+                // reachable from the row itself.
+                Field::new("conclusion_event_order", DataType::UInt64, false),
+                Field::new("stream_cid", DataType::Binary, false),
+                Field::new("stream_type", DataType::UInt8, false),
+                Field::new("controller", DataType::Utf8, false),
+                Field::new(
+                    "dimensions",
+                    DataType::Map(
+                        Field::new(
+                            "entries",
+                            DataType::Struct(
+                                vec![
+                                    Field::new("key", DataType::Utf8, false),
+                                    Field::new(
+                                        "value",
+                                        DataType::Dictionary(
+                                            Box::new(DataType::Int32),
+                                            Box::new(DataType::Binary),
+                                        ),
+                                        true,
+                                    ),
+                                ]
+                                .into(),
+                            ),
+                            false,
+                        )
+                        .into(),
+                        false,
+                    ),
+                    true,
+                ),
+                Field::new("event_cid", DataType::Binary, false),
+                Field::new("event_type", DataType::UInt8, false),
+                Field::new("event_height", DataType::UInt32, true),
+                Field::new("data", DataType::Binary, true),
+                Field::new("patch", DataType::Binary, true),
+                Field::new("model_version", DataType::Binary, true),
+            ]))
             .finish(),
         )
     }))
