@@ -816,10 +816,7 @@ impl Aggregator {
                 .await
                 .context("clearing mem table")?;
         }
-        Ok(ordered
-            .collect()
-            .await
-            .context("collecting ordered events")?)
+        ordered.collect().await.context("collecting ordered events")
     }
 }
 
