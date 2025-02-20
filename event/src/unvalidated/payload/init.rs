@@ -94,7 +94,7 @@ impl<D: serde::Serialize> Payload<D> {
 const DEFAULT_SEP: &str = "model";
 
 /// Headers for an init event
-#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -109,6 +109,8 @@ pub struct Header {
     unique: Option<Bytes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<Bytes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model_version: Option<Cid>,
 }
 
 impl Header {
@@ -120,6 +122,7 @@ impl Header {
         should_index: Option<bool>,
         unique: Option<Vec<u8>>,
         context: Option<Vec<u8>>,
+        model_version: Option<Cid>,
     ) -> Self {
         Self {
             controllers,
@@ -128,6 +131,7 @@ impl Header {
             should_index,
             unique: unique.map(Bytes::from),
             context: context.map(Bytes::from),
+            model_version,
         }
     }
 
@@ -153,6 +157,10 @@ impl Header {
     pub fn should_index(&self) -> bool {
         self.should_index.unwrap_or(true)
     }
+    /// Explicit model version to validate against.
+    pub fn model_version(&self) -> Option<Cid> {
+        self.model_version
+    }
 
     /// The unique value for the stream
     pub fn unique(&self) -> Option<&[u8]> {
@@ -162,5 +170,33 @@ impl Header {
     /// The context value for the stream
     pub fn context(&self) -> Option<&[u8]> {
         self.context.as_ref().map(Bytes::as_slice)
+    }
+}
+impl std::fmt::Debug for Header {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.debug_struct("Header")
+                .field("controllers", &self.controllers)
+                .field("sep", &self.sep)
+                .field("model", &self.model)
+                .field("should_index", &self.should_index)
+                .field("unique", &self.unique)
+                .field("context", &self.context)
+                .field(
+                    "model_version",
+                    &self.model_version.as_ref().map(|m| m.to_string()),
+                )
+                .finish()
+        } else {
+            f.debug_struct("Header")
+                .field("controllers", &self.controllers)
+                .field("sep", &self.sep)
+                .field("model", &self.model)
+                .field("should_index", &self.should_index)
+                .field("unique", &self.unique)
+                .field("context", &self.context)
+                .field("model_version", &self.model_version)
+                .finish()
+        }
     }
 }

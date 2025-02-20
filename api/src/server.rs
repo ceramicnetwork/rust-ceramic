@@ -40,17 +40,6 @@ use ceramic_core::{
 };
 use ceramic_pipeline::aggregator::{AggregatorHandle, StreamStateMsg};
 use ceramic_pipeline::PipelineHandle;
-use datafusion::arrow::array::{
-    as_dictionary_array, as_map_array, Array as _, ArrayAccessor as _, BinaryArray,
-};
-use datafusion::arrow::compute::concat_batches;
-use datafusion::arrow::datatypes::Int32Type;
-use datafusion::arrow::util::pretty::pretty_format_batches;
-use datafusion::common::cast::{as_binary_array, as_string_array};
-use datafusion::execution::context::SessionContext;
-use datafusion::functions_aggregate::expr_fn::last_value;
-use datafusion::logical_expr::expr::WindowFunction;
-use datafusion::logical_expr::{col, lit, BuiltInWindowFunction, Expr, ExprFunctionExt};
 use futures::TryFutureExt;
 use multiaddr::Protocol;
 use recon::Key;
@@ -88,7 +77,7 @@ impl BuildResponse {
     pub fn event(id: Cid, data: Option<Vec<u8>>) -> models::Event {
         let id = id.to_string();
         let mut res = models::Event::new(id);
-        if data.as_ref().map_or(false, |e| !e.is_empty()) {
+        if data.as_ref().is_some_and(|e| !e.is_empty()) {
             res.data = Some(multibase::encode(multibase::Base::Base64, data.unwrap()));
         }
         res

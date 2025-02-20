@@ -23,18 +23,23 @@ ceramic-core.workspace = true
 ceramic-event.workspace = true
 ceramic-metrics.workspace = true
 cid.workspace = true
-datafusion-functions-json = "0.43.0"
+datafusion-functions-json = "0.45.0"
 datafusion.workspace = true
 expect-test.workspace = true
 futures.workspace = true
 int-enum.workspace = true
 ipld-core.workspace = true
 json-patch = "3.0.1"
+json-schema-diff = "0.1.7"
+jsonschema.workspace = true
+lru.workspace = true
 mockall = { workspace = true, optional = true }
 multibase.workspace = true
 object_store.workspace = true
 parking_lot = "0.12.3"
+paste.workspace = true
 prometheus-client.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shutdown.workspace = true
@@ -42,9 +47,8 @@ tokio-stream = { workspace = true, features = ["sync"] }
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
-paste.workspace = true
 
 [dev-dependencies]
+mockall.workspace = true
 test-log.workspace = true
 tracing-subscriber.workspace = true
-mockall.workspace = true

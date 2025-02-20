@@ -384,7 +384,7 @@ impl EventService {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
-                    index: delivered as u64,
+                    order: delivered as u64,
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -398,6 +398,9 @@ impl EventService {
                                 data.header().and_then(|header| header.should_index()),
                                 Some(data.data()),
                             )
+                            .with_model_version(
+                                data.header().and_then(|header| header.model_version()),
+                            )
                             .to_json_bytes()
                             .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
@@ -405,7 +408,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            index: delivered as u64,
+                            order: delivered as u64,
                         }))
                     }
                     ceramic_event::unvalidated::Payload::Init(init_event) => {
@@ -417,6 +420,7 @@ impl EventService {
                                 Some(init_event.header().should_index()),
                                 init_event.data(),
                             )
+                            .with_model_version(init_event.header().model_version())
                             .to_json_bytes()
                             .map_err(|e| {
                                 Error::new_app(anyhow::anyhow!(
@@ -424,7 +428,7 @@ impl EventService {
                                     e
                                 ))
                             })?,
-                            index: delivered as u64,
+                            order: delivered as u64,
                         }))
                     }
                 }
@@ -438,11 +442,12 @@ impl EventService {
                         Some(unsigned_event.payload().header().should_index()),
                         unsigned_event.payload().data(),
                     )
+                    .with_model_version(unsigned_event.payload().header().model_version())
                     .to_json_bytes()
                     .map_err(|e| {
                         Error::new_app(anyhow::anyhow!("Failed to serialize IPLD data: {}", e))
                     })?,
-                    index: delivered as u64,
+                    order: delivered as u64,
                 }))
             }
         }
@@ -525,6 +530,15 @@ impl<'a> MIDDataContainer<'a> {
                 .unwrap_or_default(),
             content: data,
         }
+    }
+    fn with_model_version(mut self, model_version: Option<Cid>) -> Self {
+        if let Some(model_version) = model_version {
+            self.metadata.insert(
+                "modelVersion".to_owned(),
+                Ipld::String(model_version.to_string()),
+            );
+        }
+        self
     }
 }
 

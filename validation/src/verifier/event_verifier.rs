@@ -37,7 +37,7 @@ pub(crate) struct SignatureData<'a> {
     capability: Option<&'a Capability>,
 }
 
-impl<'a> SignatureData<'a> {
+impl SignatureData<'_> {
     async fn verify_signature(&self, controller: Option<&str>, opts: &VerifyJwsOpts) -> Result<()> {
         let did = self
             .jws_header

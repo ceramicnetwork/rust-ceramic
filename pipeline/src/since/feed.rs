@@ -12,8 +12,9 @@ use datafusion::{
     logical_expr::TableProviderFilterPushDown,
     physical_expr::EquivalenceProperties,
     physical_plan::{
-        stream::RecordBatchStreamAdapter, ExecutionMode, ExecutionPlan, Partitioning,
-        PlanProperties,
+        execution_plan::{Boundedness, EmissionType},
+        stream::RecordBatchStreamAdapter,
+        ExecutionPlan, Partitioning, PlanProperties,
     },
     prelude::Expr,
     scalar::ScalarValue,
@@ -56,7 +57,7 @@ impl<S> FeedTable<S> {
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
-                .map_or(false, |column| column.name == "index")
+                .is_some_and(|column| column.name == "index")
                 .then(|| {
                     if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
                         highwater_mark.to_owned()
@@ -120,7 +121,10 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
             properties: PlanProperties::new(
                 EquivalenceProperties::new(schema),
                 Partitioning::UnknownPartitioning(1),
-                ExecutionMode::Unbounded,
+                EmissionType::Incremental,
+                Boundedness::Unbounded {
+                    requires_infinite_memory: false,
+                },
             ),
         }))
     }

@@ -43,12 +43,12 @@ members = [
 
 ahash = "0.8"
 anyhow = { version = "1" }
-arrow = { version = "53", features = ["prettyprint"] }
-arrow-array = "53"
-arrow-cast = "53"
-arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
-arrow-ipc = "53"
-arrow-schema = "53"
+arrow = { version = "54", features = ["prettyprint"] }
+arrow-array = "54"
+arrow-cast = "54"
+arrow-flight = { version = "54", features = ["flight-sql-experimental"] }
+arrow-ipc = "54"
+arrow-schema = "54"
 async-broadcast = "0.4.1"
 async-channel = "1.7.1"
 async-recursion = "1"
@@ -94,8 +94,8 @@ criterion2 = "0.7.0"
 crossterm = "0.25"
 ctrlc = "3.2.2"
 dag-jose = "0.2"
-datafusion = "43"
-datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-federation.git", branch = "main" }
+datafusion = "45"
+datafusion-flight-sql-server = { git = "https://github.com/datafusion-contrib/datafusion-flight-sql-server.git", branch = "main" }
 deadqueue = "0.2.3"
 derivative = "2.2"
 derive_more = "0.99.17"
@@ -130,6 +130,7 @@ iroh-rpc-client = { path = "./beetle/iroh-rpc-client" }
 iroh-rpc-types = { path = "./beetle/iroh-rpc-types" }
 iroh-util = { path = "./beetle/iroh-util" }
 itertools = "0.13.0"
+jsonschema = "0.28.3"
 k256 = "0.13"
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4"
@@ -174,7 +175,8 @@ ring = "0.17.8"
 rkyv = "0.7.37"
 rlimit = "0.9.0"
 ruzstd = "0.3"
-schemars = "0.8"
+# TODO: Update to 1.0 stable once its released.
+schemars = "1.0.0-alpha.17"
 serde = { version = "1.0", features = ["derive"] }
 serde-error = "0.1.2"
 serde_bytes = "0.11"
@@ -268,5 +270,8 @@ inherits = "release"
 debug = true
 strip = "none"
 
+[patch."https://github.com/datafusion-contrib/datafusion-flight-sql-server.git"]
+datafusion-flight-sql-server = { git = "https://github.com/nathanielc/datafusion-flight-sql-server.git", branch = "chore/datafusion-45" }
+
 [patch.crates-io]
-#datafusion = { path = "../datafusion/datafusion/core" }
+datafusion-federation = { git = "https://github.com/nathanielc/datafusion-federation.git", branch = "chore/datafusion-45" }

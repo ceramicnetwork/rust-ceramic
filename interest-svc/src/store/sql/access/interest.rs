@@ -24,7 +24,7 @@ pub struct CeramicOneInterest {}
 type InterestError = <Interest as TryFrom<Vec<u8>>>::Error;
 
 impl CeramicOneInterest {
-    async fn insert_tx<'a>(conn: &mut SqliteTransaction<'a>, key: &Interest) -> Result<bool> {
+    async fn insert_tx(conn: &mut SqliteTransaction<'_>, key: &Interest) -> Result<bool> {
         let key_insert = sqlx::query(ReconQuery::insert_interest());
 
         let hash = Sha256a::digest(key);

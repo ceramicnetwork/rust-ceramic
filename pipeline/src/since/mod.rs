@@ -30,7 +30,7 @@ pub struct SubscribeSinceMsg {
     /// Optional set of columns to fetch. Columns are indicated by their index into the schema of
     /// the actor table.
     pub projection: Option<Vec<usize>>,
-    /// Offset into the actor table against the "index" column.
+    /// Offset into the actor table against the ordering column
     pub offset: Option<u64>,
     /// Maxium number of rows to return.
     /// When None the subscription is unbounded and never completes.
@@ -54,18 +54,20 @@ impl Message for SubscribeSinceMsg {
 /// on the actor.
 pub fn rows_since(
     schema: SchemaRef,
+    order_col: &str,
     projection: Option<Vec<usize>>,
     mut offset: Option<u64>,
     mut limit: Option<usize>,
     mut subscription: SendableRecordBatchStream,
     mut since: SendableRecordBatchStream,
 ) -> anyhow::Result<SendableRecordBatchStream> {
+    let order_col = order_col.to_owned();
     let stream = try_stream! {
         // Produce existing events
         while let Some(batch) = since.try_next().await? {
             offset = aggregate::max(as_uint64_array(
-                batch.column_by_name("index").ok_or_else(|| {
-                    anyhow::anyhow!("index column should exist on record batch")
+                batch.column_by_name(&order_col).ok_or_else(|| {
+                    anyhow::anyhow!("ordering column '{order_col}' should exist on record batch")
                 })?,
             )?);
 
@@ -84,10 +86,10 @@ pub fn rows_since(
             // Skip any duplicate events that arrived in the overlap between the subscription and
             // since streams.
             if let Some(o) = offset {
-                let index = batch.column_by_name("index").ok_or_else(|| {
-                    anyhow::anyhow!("index column should exist on events record batch")
+                let order = batch.column_by_name(&order_col).ok_or_else(|| {
+                    anyhow::anyhow!("ordering column '{order_col}' should exist on events record batch")
                 })?;
-                let predicate = arrow::compute::kernels::cmp::gt(&index, &UInt64Array::new_scalar(o))?;
+                let predicate = arrow::compute::kernels::cmp::gt(&order, &UInt64Array::new_scalar(o))?;
                 batch = filter_record_batch(&batch, &predicate)?;
                 if batch.num_rows() == 0 {
                     // Get the next batch as no rows from the current batch were greater than the
@@ -95,7 +97,7 @@ pub fn rows_since(
                     continue;
                 }
                 // We have at least one row that is past the offset.
-                // Data is ordered by index so we no longer need to filter based on the
+                // Data is ordered so we no longer need to filter based on the
                 // offset.
                 offset = None;
             }

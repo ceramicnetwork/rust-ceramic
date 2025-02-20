@@ -1,0 +1,41 @@
+{
+  "streamId": "kjzl6hvfrbw6c95mqxz3bhnv35rhtb9senbr5jyb3s87vei7dvu38hkzhehqzhw",
+  "state": {
+    "type": 2,
+    "content": {
+      "accountRelation": {
+        "type": "list"
+      },
+      "name": "Materialpassport",
+      "relations": {},
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "completed": {
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "completed"
+        ],
+        "type": "object"
+      },
+      "version": "1.0",
+      "views": {
+        "author": {
+          "type": "documentAccount"
+        },
+        "version": {
+          "type": "documentVersion"
+        }
+      }
+    }
+  }
+}

@@ -119,7 +119,7 @@ impl OrderEvents {
                     unreachable!("Init events should have been filtered out of the in memory set");
                 }
                 Some(prev) => {
-                    if new_cids.get(prev).map_or(false, |v| *v) {
+                    if new_cids.get(prev).is_some_and(|v| *v) {
                         *new_cids.get_mut(event.cid()).expect("CID must exist") = true;
                         event.set_deliverable(true);
                         deliverable.push(event);

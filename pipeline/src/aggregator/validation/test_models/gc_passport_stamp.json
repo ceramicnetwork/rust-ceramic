@@ -1,0 +1,285 @@
+{
+    "streamId": "kjzl6hvfrbw6c9x0b2jmkiuhwejywo1oi5ngz1jxzi61ydsoqq1hic6k382smsu",
+    "state": {
+        "type": 2,
+        "content": {
+            "name": "GitcoinPassportStamp",
+            "views": {},
+            "schema": {
+                "type": "object",
+                "$defs": {
+                    "EIP712Domain": {
+                        "type": "object",
+                        "title": "EIP712Domain",
+                        "required": [
+                            "primaryType",
+                            "domain",
+                            "types"
+                        ],
+                        "properties": {
+                            "types": {
+                                "$ref": "#/$defs/EIP712DomainTypes"
+                            },
+                            "domain": {
+                                "$ref": "#/$defs/EIP712DomainDomain"
+                            },
+                            "primaryType": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "EIP712ValueType": {
+                        "type": "object",
+                        "title": "EIP712ValueType",
+                        "required": [
+                            "name",
+                            "type"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "type": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "GraphQLDateTime": {
+                        "type": "string",
+                        "title": "GraphQLDateTime",
+                        "format": "date-time",
+                        "maxLength": 100
+                    },
+                    "EIP712DomainTypes": {
+                        "type": "object",
+                        "title": "EIP712DomainTypes",
+                        "properties": {
+                            "Proof": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            },
+                            "Document": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            },
+                            "_context": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            },
+                            "EIP712Domain": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            },
+                            "CredentialStatus": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            },
+                            "CredentialSubject": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/$defs/EIP712ValueType"
+                                },
+                                "maxItems": 1024
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "EIP712DomainDomain": {
+                        "type": "object",
+                        "title": "EIP712DomainDomain",
+                        "required": [
+                            "name"
+                        ],
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "GitcoinPassportVcProof": {
+                        "type": "object",
+                        "title": "GitcoinPassportVcProof",
+                        "required": [
+                            "_context",
+                            "type",
+                            "proofPurpose",
+                            "proofValue",
+                            "verificationMethod",
+                            "created",
+                            "eip712Domain"
+                        ],
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "created": {
+                                "$ref": "#/$defs/GraphQLDateTime"
+                            },
+                            "_context": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "proofValue": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "eip712Domain": {
+                                "$ref": "#/$defs/EIP712Domain"
+                            },
+                            "proofPurpose": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "verificationMethod": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "GitcoinPassportVcCredentialSubject": {
+                        "type": "object",
+                        "title": "GitcoinPassportVcCredentialSubject",
+                        "required": [
+                            "id",
+                            "provider",
+                            "hash"
+                        ],
+                        "properties": {
+                            "id": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "hash": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "_context": {
+                                "$ref": "#/$defs/GitcoinPassportVcCredentialSubjectContext"
+                            },
+                            "provider": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "GitcoinPassportVcCredentialSubjectContext": {
+                        "type": "object",
+                        "title": "GitcoinPassportVcCredentialSubjectContext",
+                        "required": [
+                            "hash",
+                            "provider"
+                        ],
+                        "properties": {
+                            "hash": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            },
+                            "provider": {
+                                "type": "string",
+                                "maxLength": 1024,
+                                "minLength": 1
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "required": [
+                    "_context",
+                    "type",
+                    "issuer",
+                    "issuanceDate",
+                    "credentialSubject",
+                    "proof"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 1024,
+                            "minLength": 1
+                        },
+                        "maxItems": 1024
+                    },
+                    "proof": {
+                        "$ref": "#/$defs/GitcoinPassportVcProof"
+                    },
+                    "issuer": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "minLength": 1
+                    },
+                    "_context": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 1024,
+                            "minLength": 1
+                        },
+                        "maxItems": 1024
+                    },
+                    "issuanceDate": {
+                        "$ref": "#/$defs/GraphQLDateTime"
+                    },
+                    "expirationDate": {
+                        "$ref": "#/$defs/GraphQLDateTime"
+                    },
+                    "credentialSubject": {
+                        "$ref": "#/$defs/GitcoinPassportVcCredentialSubject"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "version": "2.0",
+            "interface": false,
+            "relations": {},
+            "implements": [
+                "kjzl6hvfrbw6c9rm2lhkk2mv5v8ytatv6br7uy4ugewmf0zivk8xle3qmpbkzgd",
+                "kjzl6hvfrbw6c5nawcon8xmqyh270olex7ggbdrpam6w0rpewkn5jyybmkyc5rw"
+            ],
+            "description": "A gitcoin passport stamp with a provider and hash",
+            "accountRelation": {
+                "type": "list"
+            }
+        }
+    }
+}

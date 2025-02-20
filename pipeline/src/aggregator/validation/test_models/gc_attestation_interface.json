@@ -1,0 +1,37 @@
+{
+    "streamId": "kjzl6hvfrbw6c5nawcon8xmqyh270olex7ggbdrpam6w0rpewkn5jyybmkyc5rw",
+    "state": {
+        "type": 2,
+        "content": {
+            "name": "GitcoinAttestation",
+            "views": {},
+            "schema": {
+                "type": "object",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "required": [
+                    "type"
+                ],
+                "properties": {
+                    "type": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 1024,
+                            "minLength": 1
+                        },
+                        "maxItems": 1024
+                    }
+                },
+                "additionalProperties": false
+            },
+            "version": "2.0",
+            "interface": true,
+            "relations": {},
+            "implements": [],
+            "description": "Base class for any Gitcoin attestation",
+            "accountRelation": {
+                "type": "none"
+            }
+        }
+    }
+}
