@@ -1,0 +1,34 @@
+apiVersion: keramik.3box.io/v1alpha1
+kind: Network
+metadata:
+  name: ceramic-anchoring-benchmark
+spec:
+  ceramic:
+    - env:
+        CERAMIC_RECON_MODE: "true"
+      image: ceramicnetwork/js-ceramic:latest
+      imagePullPolicy: Always
+      ipfs:
+        rust:
+          env:
+            CERAMIC_ONE_RECON: "true"
+          resourceLimits:
+            cpu: "6"
+            memory: 6Gi
+          image: public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+          imagePullPolicy: Always
+      resourceLimits:
+        cpu: "4"
+        memory: 8Gi
+  casApiUrl: https://cas-dev-direct.3boxlabs.com
+  networkType: dev-unstable
+  ethRpcUrl: ""
+
+  datadog:
+    enabled: true
+    profilingEnabled: true
+    version: "0"
+  monitoring:
+    namespaced: true
+  replicas: 2
+

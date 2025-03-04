@@ -1,0 +1,20 @@
+{
+    "embeds": [
+      {
+        "title": "$SIMULATION_STATUS_TAG",
+        "description": "[Dashboard](https://threebox.grafana.net/d/adc2vf8f58idcd/keramik-simulation?orgId=1&var-cluster=${CLUSTER_NAME}&var-namespace=$THIS_TEST_NAMESPACE&from=now-1h&to=now) [Logs](https://console.cloud.google.com/logs/query;query=resource.type%3D%22k8s_container%22%0Aresource.labels.cluster_name%3D%22${CLUSTER_NAME}%22%0Aresource.labels.namespace_name%3D%22${THIS_TEST_NAMESPACE}%22%0A;duration=PT1H?project=ceramic-perfomance-tests)",
+        "color": $SIMULATION_COLOR,
+        "fields": [
+          {
+            "name": "Duration",
+            "value": "$SIMULATION_RUNTIME",
+            "inline": true
+          },
+          {
+            "name": "Namespace",
+            "value": "$THIS_TEST_NAMESPACE"
+          }
+        ]
+      }
+    ]
+  }

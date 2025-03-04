@@ -1,0 +1,20 @@
+---
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Network
+metadata:
+  name: basic-go-rust
+spec:
+  replicas: 1
+  ceramic:
+    - ipfs:
+        go:
+          resourceLimits:
+            cpu: "4"
+            memory: "1Gi"
+  # Use Kubo with CAS because it still needs pubsub
+  cas:
+    casResourceLimits:
+      cpu: "2"
+      memory: "4Gi"
+    ipfs:
+      go: {}

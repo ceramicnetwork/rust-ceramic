@@ -1,0 +1,25 @@
+[package]
+name = "hermetic-driver"
+description = "Test driver against hermetic infrastructure"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+anyhow = "1.0.75"
+serde = { version = "1.0.188", features = ["serde_derive"] }
+tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+clap = { version = "4.4.3", features = ["derive"] }
+kube = { version = "0.88.0", features = ["client"] }
+# Depend on minimum k8s version we support
+k8s-openapi = { version = "0.21", features = ["v1_26"] }
+futures = "0.3.28"
+env_logger = "0.10.0"
+log = "0.4.20"
+keramik-operator = { git = "https://github.com/3box/keramik.git", branch = "main", default-features = false }
+# Do not upgrade to 0.9, see https://github.com/dtolnay/serde-yaml/issues/298
+# TL;DR Version 0.9 uses YAML tags for enums which breaks.
+serde_yaml = "0.8"

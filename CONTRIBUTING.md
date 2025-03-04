@@ -38,6 +38,10 @@ To debug code and tests enable logging of traces:
 See the [env_logger](https://docs.rs/env_logger/latest/env_logger/index.html) docs for more details on how `RUST_LOG` can be used.
 See the [tracing](https://docs.rs/tracing/latest/tracing/#shorthand-macros) docs for more details on adding new trace events into code or tests.
 
+### Integration Tests
+
+The `tests` directory contains a suite of end to end tests. See its README for more details.
+
 ### Generating Servers
 
 There are two OpenAPI based servers that are generated.

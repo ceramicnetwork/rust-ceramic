@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["hermetic"]
+
+[workspace.dependencies]
+ceramic-tests-hermetic-driver = { path = "./hermetic/" }
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+authors = ["Nathaniel Cook <nvcook42@gmail.com>"]
+license = "Apache-2.0/MIT"
+repository = "https://github.com/3box/ceramic-tests"
