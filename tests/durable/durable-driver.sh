@@ -12,8 +12,6 @@ DURABLE_ENV=${1-dev}
 TEST_SELECTOR=${2-.}
 
 case "${DURABLE_ENV}" in
-  dev)  ;;
-  qa)   ;;
   tnet) ;;
   prod) ;;
   *)
