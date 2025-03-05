@@ -1,0 +1,36 @@
+{
+  "name": "ceramic-sdk",
+  "private": true,
+  "packageManager": "pnpm@9.8.0",
+  "scripts": {
+    "build": "pnpm --filter \"@ceramic-sdk/*\" build && turbo run build:js",
+    "build:rust": "pnpm --filter \"@ceramic-sdk/flight-sql-client\" build",
+    "build:js": "pnpm --filter \"@ceramic-sdk/*\" --filter !@ceramic-sdk/flight-sql-client build && turbo run build:js",
+    "docs": "typedoc",
+    "lint:fix": "biome check --write apps/* packages/* tests/*",
+    "lint:ci": "biome ci packages/* tests/*",
+    "test": "turbo run test -- --passWithNoTests",
+    "test:ci": "turbo run test:ci -- --passWithNoTests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.2",
+    "@changesets/cli": "^2.27.1",
+    "@jest/globals": "^29.7.0",
+    "@skypack/package-check": "^0.2.2",
+    "@swc/cli": "^0.4.0",
+    "@swc/core": "^1.7.24",
+    "@swc/jest": "^0.2.36",
+    "@types/jest": "^29.5.13",
+    "@types/node": "^22.7.0",
+    "del-cli": "^5.1.0",
+    "jest": "^29.7.0",
+    "tsx": "^4.19.1",
+    "turbo": "^2.1.2",
+    "typedoc": "^0.26.7",
+    "typedoc-plugin-markdown": "^4.2.7",
+    "typescript": "^5.6.2"
+  },
+  "pnpm": {
+    "overrides": {}
+  }
+}

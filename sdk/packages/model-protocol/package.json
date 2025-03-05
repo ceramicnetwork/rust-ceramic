@@ -1,0 +1,62 @@
+{
+  "name": "@ceramic-sdk/model-protocol",
+  "version": "0.2.1",
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "stream", "model"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/model-protocol"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@ceramic-sdk/events": "workspace:^",
+    "@ceramic-sdk/identifiers": "workspace:^",
+    "@didtools/cacao": "^3.0.1",
+    "@didtools/codecs": "^3.0.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "codeco": "^1.4.3",
+    "json-ptr": "^3.1.1",
+    "ts-essentials": "^10.0.2"
+  },
+  "devDependencies": {
+    "@ceramic-sdk/test-utils": "workspace:^",
+    "json-schema-typed": "^8.0.1",
+    "multiformats": "^13.3.0"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

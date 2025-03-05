@@ -1,0 +1,57 @@
+{
+  "name": "@ceramic-sdk/test-c1-integration",
+  "version": "0.1.0",
+  "author": "3Box Labs",
+  "private": true,
+  "license": "(Apache-2.0 OR MIT)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:clean": "del dist",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --runInBand"
+  },
+  "dependencies": {
+    "@ceramic-sdk/events": "workspace:^",
+    "@ceramic-sdk/stream-client": "workspace:^",
+    "@ceramic-sdk/identifiers": "workspace:^",
+    "@ceramic-sdk/flight-sql-client": "workspace:^",
+    "@ceramic-sdk/http-client": "workspace:^",
+    "@ceramic-sdk/model-client": "workspace:^",
+    "@ceramic-sdk/model-instance-client": "workspace:^",
+    "@ceramic-sdk/model-instance-protocol": "workspace:^",
+    "@ceramic-sdk/model-protocol": "workspace:^",
+    "@didtools/key-did": "^1.0.0",
+    "@didtools/codecs": "^3.0.0",
+    "apache-arrow": "18.0.0",
+    "@jest/environment": "^29.7.0",
+    "@types/cross-spawn": "^6.0.0",
+    "cross-spawn": "^7.0.6",
+    "modern-spawn": "^1.0.0"
+  },
+  "devDependencies": {
+    "multiformats": "^13.3.0",
+    "dids": "^5.0.2"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

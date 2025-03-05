@@ -1,0 +1,56 @@
+{
+  "name": "@ceramic-sdk/flight-sql-client",
+  "version": "0.2.0",
+  "description": "A FlightSQL client. Currently only supports Node.js",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": ["index.js", "index.d.ts"],
+  "keywords": ["ceramic", "FlightSQL"],
+  "napi": {
+    "name": "flight-sql-client",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu"
+      ]
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
+    "@swc-node/register": "^1.10.6",
+    "@taplo/cli": "^0.7.0"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build:debug": "napi build --platform",
+    "build": "napi build --platform --release --target $(rustc -vV | sed -n 's|host: ||p')",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepublishOnly": "napi prepublish -t npm",
+    "format": "pnpm format:rs && pnpm format:toml",
+    "format:toml": "taplo format",
+    "format:rs": "cargo fmt",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

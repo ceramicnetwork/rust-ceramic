@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.vscode
+.turbo
+.ceramic-one
+
+# rust
+target
+# napi binaries
+*.node

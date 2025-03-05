@@ -1,0 +1,64 @@
+{
+  "name": "@ceramic-sdk/events",
+  "version": "0.2.1",
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "events"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/events"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepare": "pnpm build",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@ceramic-sdk/identifiers": "workspace:^",
+    "@didtools/codecs": "^3.0.0",
+    "@ipld/dag-cbor": "^9.2.1",
+    "@ipld/dag-json": "^10.2.2",
+    "cartonne": "^3.0.1",
+    "codeco": "^1.4.3",
+    "dag-jose": "^5.1.1",
+    "multiformats": "^13.3.0",
+    "multihashes-sync": "^2.0.0",
+    "uint8arrays": "^5.1.0",
+    "ts-essentials": "^10.0.2"
+  },
+  "devDependencies": {
+    "@didtools/key-did": "^1.0.0",
+    "dids": "^5.0.2"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

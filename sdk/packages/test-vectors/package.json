@@ -1,0 +1,77 @@
+{
+  "name": "@ceramic-sdk/test-vectors",
+  "version": "0.1.0",
+  "private": true,
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "test"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/test-vectors"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "create": "tsx ./scripts/create-test-vectors.ts",
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@ipld/dag-cbor": "^9.2.1",
+    "@ipld/dag-json": "^10.2.2",
+    "cartonne": "^3.0.1",
+    "dag-jose": "^5.1.0",
+    "multihashes-sync": "^2.0.0"
+  },
+  "devDependencies": {
+    "@ceramic-sdk/events": "workspace:^",
+    "@ceramic-sdk/identifiers": "workspace:^",
+    "@ceramic-sdk/model-instance-client": "workspace:^",
+    "@ceramic-sdk/model-instance-protocol": "workspace:^",
+    "@ceramic-sdk/test-utils": "workspace:^",
+    "@didtools/cacao": "^3.0.1",
+    "@didtools/key-did": "^1.0.0",
+    "@didtools/key-webauthn": "^2.0.2",
+    "@didtools/key-webcrypto": "^0.2.0",
+    "@didtools/pkh-ethereum": "^0.6.0",
+    "@didtools/pkh-solana": "^0.2.0",
+    "@noble/curves": "^1.6.0",
+    "@solana/signers": "^2.0.0-rc.1",
+    "caip": "^1.1.1",
+    "cborg": "^4.2.4",
+    "did-session": "^4.0.0",
+    "dids": "^5.0.2",
+    "key-did-resolver": "^4.0.0",
+    "multiformats": "^13.3.0",
+    "uint8arrays": "^5.1.0"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}
