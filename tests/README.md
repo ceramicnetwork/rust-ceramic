@@ -92,10 +92,10 @@ There are some helpful scripts in this repo to make testing locally possible:
 The script kills those processes and creates new ones. However, if you need you can kill them directly.
 The script should be run anytime a pod in the network restarts.
 
-You can also run these tests against durable infrastructure (e.g. QA):
+You can also run these tests against durable infrastructure (e.g. Testnet):
 ```bash
     cd tests/suite
-    DURABLE_ENV=qa DOTENV_CONFIG_PATH=./env/.env."$DURABLE_ENV" pnpm run test --testPathPattern fast
+    DURABLE_ENV=tnet DOTENV_CONFIG_PATH=./env/.env."$DURABLE_ENV" pnpm run test --testPathPattern fast
 ```
 ### Visualizing Topology
 
