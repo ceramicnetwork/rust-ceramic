@@ -15,7 +15,7 @@ case "${DURABLE_ENV}" in
   tnet) ;;
   prod) ;;
   *)
-    echo "Usage: $0 {dev|qa|tnet|prod}"
+    echo "Usage: $0 {tnet|prod}"
     exit 1
     ;;
 esac
