@@ -1,0 +1,33 @@
+apiVersion: keramik.3box.io/v1alpha1
+kind: Network
+metadata:
+  name: ceramic-new-streams
+spec:
+  ceramic:
+    - env:
+        CERAMIC_RECON_MODE: "true"
+      imagePullPolicy: Always
+      ipfs:
+        rust:
+          env:
+            CERAMIC_ONE_RECON: "true"
+          resourceLimits:
+            cpu: "6"
+            memory: 6Gi
+          imagePullPolicy: Always
+      resourceLimits:
+        cpu: "4"
+        memory: 8Gi
+  casApiUrl: https://cas-dev-direct.3boxlabs.com
+  networkType: dev-unstable
+  ethRpcUrl: ""
+
+  datadog:
+    enabled: true
+    profilingEnabled: true
+    version: "0"
+  monitoring:
+    namespaced: true
+    podMonitor:
+      enabled: true
+  replicas: 2

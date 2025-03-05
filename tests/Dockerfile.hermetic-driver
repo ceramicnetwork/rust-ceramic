@@ -1,0 +1,15 @@
+FROM public.ecr.aws/r5b3e0r5/3box/rust-builder:latest as builder
+USER root
+RUN mkdir -p /home/builder/ceramic-tests
+WORKDIR /home/builder/ceramic-tests
+
+# Copy in source code
+COPY Makefile Makefile
+COPY Cargo.toml Cargo.toml
+COPY Cargo.lock Cargo.lock
+COPY hermetic hermetic
+
+# Build application using a docker cache
+RUN make driver
+
+ENTRYPOINT ["target/release/hermetic-driver"]

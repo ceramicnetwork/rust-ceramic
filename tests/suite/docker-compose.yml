@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  localstack:
+    container_name: "${LOCALSTACK_DOCKER_NAME-localstack_main}"
+    image: gresau/localstack-persist:3
+    ports:
+      - "127.0.0.1:4566:4566"            # LocalStack Gateway
+      - "127.0.0.1:4510-4559:4510-4559"  # external services port range
+    environment:
+      - DEBUG=${DEBUG-}
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - internal
+
+  test-suite:
+    build:
+      context: ./
+    container_name: test-suite
+    image: test-suite
+    environment:
+      - AWS_ACCESS_KEY_ID=.
+      - AWS_REGION=us-east-1
+      - AWS_SECRET_ACCESS_KEY=.
+      - DB_ENDPOINT=http://localstack:4566
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    depends_on:
+      - localstack
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,29 @@
+---
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Network
+metadata:
+  name: basic-rust
+spec:
+  replicas: 2
+  ceramic:
+    - env:
+        CERAMIC_RECON_MODE: "true"
+      image: "ceramicnetwork/composedb:dev"
+      imagePullPolicy: Always # Ensures the image is always pulled before starting the pod
+      ipfs:
+        rust:
+          env:
+            CERAMIC_ONE_RECON: "true"
+            CERAMIC_ONE_ETHEREUM_RPC_URLS: "http://ganache:8545"
+          resourceLimits:
+            cpu: "4"
+            memory: "1Gi"
+  # Use Kubo with CAS because it still needs pubsub
+  cas:
+    casResourceLimits:
+      cpu: "2"
+      memory: "4Gi"
+    ipfs:
+      go: {}
+  monitoring:
+    namespaced: true

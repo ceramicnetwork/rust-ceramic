@@ -1,0 +1,301 @@
+name: Build and Test
+
+on:
+  pull_request: {}
+  merge_group:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  check:
+    name: Check ceramic-one
+    runs-on: ubuntu-latest
+    container: 'public.ecr.aws/r5b3e0r5/3box/rust-builder:latest'
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: git file permission config
+      run: git config --global --add safe.directory '*'
+    - name: Check fmt
+      run: make check-fmt
+    - name: Check clippy
+      run: make check-clippy
+    - name: Check generated servers
+      run: |
+        make check-api-server
+        make check-kubo-rpc-server
+    - name: Check deps
+      run: make check-deps
+  test:
+    name: Unit Test ceramic-one
+    runs-on: ubuntu-latest
+    container: 'public.ecr.aws/r5b3e0r5/3box/rust-builder:latest'
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: Run tests
+      run: make test
+  build:
+    name: Build ceramic-one
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    -
+      name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    -
+      name: Login to Public ECR
+      uses: docker/login-action@v2
+      with:
+        registry: public.ecr.aws
+        username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      env:
+        AWS_REGION: us-east-1
+    -
+      name: Build and Publish Docker Image
+      id: build
+      run: |
+        IMAGE_TAG='${{ github.sha }}'
+        make SHA_TAG="$IMAGE_TAG" TAG_LATEST="false" publish-docker
+        echo "Image tag:"
+        echo ${IMAGE_TAG}
+        echo "image_tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+
+  check-driver:
+    name: Check hermetic-driver
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: pnpm/action-setup@v4
+      with:
+        package_json_file: tests/suite/package.json
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: Check fmt
+      run: make -C tests check-fmt
+    - name: Check clippy
+      run: make -C tests check-clippy
+
+  generate-matrix:
+    name: Generate Integration Test Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      networks: ${{ steps.generate-matrix.outputs.networks }}
+      build_tag: ${{ steps.generate-matrix.outputs.build_tag }}
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+      -
+        name: Generate network matrix
+        id: generate-matrix
+        run: |
+          NETWORKS=$(ls tests/networks | jq -R -s -c '. | gsub(".yaml"; "") | split("\n")[:-1]')
+          echo "Networks:"
+          echo ${NETWORKS}
+          echo "networks=${NETWORKS}" >> $GITHUB_OUTPUT
+          # Choose unique name for this build
+          BUILD_TAG="$(echo ${{ github.sha }} | head -c 8)-${{ github.run_id }}"
+          echo "Build tag:"
+          echo ${BUILD_TAG}
+          echo "build_tag=${BUILD_TAG}" >> $GITHUB_OUTPUT
+          cat $GITHUB_OUTPUT
+
+  publish-suite:
+    name: Publish Integration Test Suite
+    runs-on: ubuntu-latest
+    needs: generate-matrix
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    - name: Login to Public ECR
+      uses: docker/login-action@v2
+      with:
+        registry: public.ecr.aws
+        username: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      env:
+        AWS_REGION: us-east-1
+    - name: Build and Publish
+      run: make -C tests BUILD_TAG=${{ needs.generate-matrix.outputs.build_tag }} publish-suite
+
+  build-driver:
+    name: Build hermetic-driver
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # The prefix cache key, this can be changed to start a new cache manually.
+        # default: "v0-rust"
+        prefix-key: v0
+        # Cache only the cargo registry
+        cache-targets: false
+    - uses: mozilla-actions/sccache-action@v0.0.3
+    - name: Build Tester
+      run: make -C tests BUILD_PROFILE=release driver
+    - uses: actions/upload-artifact@master
+      with:
+        name: hermetic-driver
+        path: ./tests/target/release/hermetic-driver
+        retention-days: 1
+
+  run-integration-tests:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+    environment: tnet-prod-2024
+    needs:
+      - generate-matrix
+      - build-driver
+      - publish-suite
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        networks: ${{ fromJSON(needs.generate-matrix.outputs.networks) }}
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+
+      -
+        name: Setup GKE auth
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
+      -
+        name: Get GKE credentials
+        uses: 'google-github-actions/get-gke-credentials@v1'
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_ZONE }}
+      - uses: actions/download-artifact@master
+        with:
+          name: hermetic-driver
+          path: ./bin
+      -
+        name: Test ${{ matrix.networks }}
+        run: |
+          set -euxo pipefail
+          cd tests
+          export BUILD_TAG=${{ needs.generate-matrix.outputs.build_tag }}
+          export TEST_NETWORK=./networks/${{ matrix.networks }}.yaml
+          chmod +x ../bin/hermetic-driver
+
+          # Setup network yaml to be use the ceramic-one image build for this run (i.e. its git sha)
+          RUST_CERAMIC_IMAGE_TAG='${{ needs.build.outputs.image_tag }}'
+          RUST_CERAMIC_IMAGE_REPO='public.ecr.aws/r5b3e0r5/3box/ceramic-one'
+          export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
+          curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ../bin/yq
+          chmod +x ../bin/yq
+          ../bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' $TEST_NETWORK
+          ../bin/yq --no-colors $TEST_NETWORK
+
+          # For scheduled events, "test_selector" will be null, so default to running all tests.
+          test_selector=${{ github.event.inputs.test_selector || 'correctness' }}
+
+          # For PR events, run only "fast" tests.
+          if [[ ${{ github.event_name == 'pull_request' }} == 'true' ]]; then
+              test_selector="correctness/fast"
+          fi
+          make TEST_SELECTOR="$test_selector" HERMETIC_CMD=../bin/hermetic-driver hermetic-tests
+
+  run-migration-tests:
+    name: Run Migration Tests
+    runs-on: ubuntu-latest
+    environment: tnet-prod-2024
+    needs:
+      - build-driver
+      - publish-suite
+      - generate-matrix #Needed to know the BUILD_TAG
+      - build
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+      -
+        name: Setup GKE auth
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: ${{ secrets.GKE_SA_KEY }}
+      -
+        name: Get GKE credentials
+        uses: 'google-github-actions/get-gke-credentials@v1'
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GKE_ZONE }}
+      - uses: actions/download-artifact@master
+        with:
+          name: hermetic-driver
+          path: ./bin
+      -
+        name: Test migration ${{ matrix.networks }}
+        run: |
+          set -euxo pipefail
+          cd tests
+          export BUILD_TAG=${{ needs.generate-matrix.outputs.build_tag }}
+          TEST_NETWORK=./migration-networks/basic-go-rust-post.yaml
+          chmod +x ../bin/hermetic-driver
+
+          # Setup network yaml to be use the ceramic-one image build for this run (i.e. its git sha)
+          RUST_CERAMIC_IMAGE_TAG='${{ needs.build.outputs.image_tag }}'
+          RUST_CERAMIC_IMAGE_REPO='public.ecr.aws/r5b3e0r5/3box/ceramic-one'
+          export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
+          curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ../bin/yq
+          chmod +x ../bin/yq
+          ../bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' $TEST_NETWORK
+          ../bin/yq --no-colors $TEST_NETWORK
+
+          make HERMETIC_CMD=../bin/hermetic-driver migration-tests
+
+  integration-test-results:
+    name: Hermetic Test Results
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    needs: [run-integration-tests, run-migration-tests]
+    steps:
+      - run: exit 1
+        # see https://stackoverflow.com/a/67532120/4907315
+        if: >-
+          ${{
+               contains(needs.*.result, 'failure')
+            || contains(needs.*.result, 'cancelled')
+          }}

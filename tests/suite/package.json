@@ -1,0 +1,72 @@
+{
+  "name": "ceramic-tests-suite",
+  "version": "1.0.0",
+  "description": "Ceramic Tests Suite",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand --reporters default --setupFiles dotenv/config --forceExit",
+    "format": "prettier --write '**/*.{js,ts,jsx,tsx,json,css,scss,md}'"
+  },
+  "devDependencies": {
+    "@skypack/package-check": "^0.2.2",
+    "@types/aws-lambda": "^8.10.146",
+    "@types/luxon": "^2.4.0",
+    "@types/node": "^16.18.122",
+    "eslint-config-3box": "^1.0.0",
+    "prettier": "^3.4.2",
+    "semver": "^7.6.3",
+    "ts-loader": "^9.5.1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-api-gateway": "^3.713.0",
+    "@aws-sdk/client-dynamodb": "^3.713.0",
+    "@aws-sdk/client-lambda": "^3.713.0",
+    "@ceramicnetwork/codecs": "^5.4.0",
+    "@ceramicnetwork/common": "^6.4.0",
+    "@ceramicnetwork/common-test-utils": "^4.4.0",
+    "@ceramicnetwork/http-client": "^6.4.0",
+    "@ceramicnetwork/stream-model": "^5.4.0",
+    "@ceramicnetwork/stream-model-instance": "^5.4.0",
+    "@ceramicnetwork/stream-tile": "^6.4.0",
+    "@ceramicnetwork/streamid": "^5.6.0",
+    "@composedb/client": "^0.8.0",
+    "@composedb/devtools": "^0.8.0",
+    "@didtools/pkh-ethereum": "^0.5.0",
+    "@ipld/dag-cbor": "^7.0.3",
+    "@ipld/dag-json": "^10.2.3",
+    "@jest/globals": "^29.7.0",
+    "@jest/reporters": "^29.7.0",
+    "@stablelib/random": "^1.0.2",
+    "axios": "^0.24.0",
+    "caip": "^1.1.1",
+    "cartonne": "^3.0.1",
+    "codeco": "^1.4.3",
+    "cross-eventsource": "^1.0.0",
+    "cross-fetch": "^4.0.0",
+    "did-session": "^3.1.0",
+    "dids": "5.0.3",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.4",
+    "graphql-request": "^6.1.0",
+    "jest": "^29.7.0",
+    "key-did-provider-ed25519": "4.0.2",
+    "key-did-resolver": "4.0.0",
+    "luxon": "3.2.1",
+    "multiformats": "^13.3.1",
+    "multihashes-sync": "^2.0.0",
+    "node-jq": "^2.3.5",
+    "rxjs": "^7.8.1",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.0.0",
+    "uint8arrays": "^5.1.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "graphql": "16.9.0",
+      "@graphql-tools/utils": "10.7.0"
+    }
+  },
+  "prettier": "eslint-config-3box/prettier.config",
+  "packageManager": "pnpm@8.8.0"
+}

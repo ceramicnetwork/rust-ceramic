@@ -1,0 +1,12 @@
+---
+apiVersion: "keramik.3box.io/v1alpha1"
+kind: Simulation
+metadata:
+  name: ceramic-anchoring-benchmark
+  namespace: keramik-ceramic-benchmark
+spec:
+  scenario: ceramic-anchoring-benchmark
+  users: 16
+  runTime: 20
+  throttleRequests: 100
+  anchorWaitTime: 40
