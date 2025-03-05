@@ -1,0 +1,13 @@
+{
+  "jsc": {
+    "parser": {
+      "syntax": "typescript",
+      "decorators": true
+    },
+    "target": "es2022",
+    "transform": {
+      "legacyDecorator": true,
+      "decoratorMetadata": true
+    }
+  }
+}

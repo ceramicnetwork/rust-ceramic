@@ -2,3 +2,4 @@
 */target
 .github
 Dockerfile
+*/node_modules

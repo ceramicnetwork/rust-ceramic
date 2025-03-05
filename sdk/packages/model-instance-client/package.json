@@ -36,12 +36,12 @@
     "@ceramic-sdk/stream-client": "workspace:^",
     "@didtools/codecs": "^3.0.0",
     "fast-json-patch": "^3.1.1",
-    "multiformats": "^13.3.0"
+    "multiformats": "^13.3.1"
   },
   "devDependencies": {
     "@ceramic-sdk/http-client": "workspace:^",
     "@didtools/key-did": "^1.0.0",
-    "dids": "^5.0.2",
+    "dids": "^5.0.3",
     "uint8arrays": "^5.1.0",
     "ts-essentials": "^10.0.2"
   },

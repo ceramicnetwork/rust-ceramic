@@ -1,20 +1,21 @@
-import { randomBytes } from 'node:crypto'
+import { beforeAll, describe, expect, test } from '@jest/globals'
 import {
   type ClientOptions,
   type FlightSqlClient,
   createFlightSqlClient,
 } from '@ceramic-sdk/flight-sql-client'
+import type { StreamID } from '@ceramic-sdk/identifiers'
 import { CeramicClient } from '@ceramic-sdk/http-client'
-import type { CommitID, StreamID } from '@ceramic-sdk/identifiers'
 import { ModelClient } from '@ceramic-sdk/model-client'
 import { ModelInstanceClient } from '@ceramic-sdk/model-instance-client'
 import type { ModelDefinition } from '@ceramic-sdk/model-protocol'
-import { getAuthenticatedDID } from '@didtools/key-did'
-import type { DID } from 'dids'
-import CeramicOneContainer, {
-  waitForEventState,
-  type EnvironmentOptions,
-} from '../src'
+import { waitForEventState } from '../../../utils/rustCeramicHelpers'
+import { urlsToEndpoint } from '../../../utils/common'
+import { randomDID } from '../../../utils/didHelper'
+
+const CeramicUrls = String(process.env.CERAMIC_URLS).split(',')
+const CeramicFlightUrls = String(process.env.CERAMIC_FLIGHT_URLS).split(',')
+const CeramicFlightEndpoints = urlsToEndpoint(CeramicFlightUrls);
 
 const testModel: ModelDefinition = {
   version: '2.0',
@@ -32,39 +33,32 @@ const testModel: ModelDefinition = {
   },
 }
 
-const CONTAINER_OPTS: EnvironmentOptions = {
-  containerName: 'ceramic-test-model-MID-list',
-  apiPort: 5222,
-  flightSqlPort: 5223,
-  testPort: 5223,
-}
-
 const FLIGHT_OPTIONS: ClientOptions = {
   headers: new Array(),
   username: undefined,
   password: undefined,
   token: undefined,
   tls: false,
-  host: '127.0.0.1',
-  port: CONTAINER_OPTS.flightSqlPort,
+  host: CeramicFlightEndpoints[0].host,
+  port: CeramicFlightEndpoints[0].port,
 }
 
-const client = new CeramicClient({
-  url: `http://127.0.0.1:${CONTAINER_OPTS.apiPort}`,
-})
 
-describe('model integration test for list model and MID', () => {
-  let c1Container: CeramicOneContainer
+describe('model integration test for single model and MID', () => {
   let modelStream: StreamID
   let flightClient: FlightSqlClient
+  let client: CeramicClient
+  let modelClient: ModelClient
 
   beforeAll(async () => {
-    c1Container = await CeramicOneContainer.startContainer(CONTAINER_OPTS)
     flightClient = await createFlightSqlClient(FLIGHT_OPTIONS)
-    const authenticatedDID = await randomDID()
-    const modelClient = new ModelClient({
+    client = new CeramicClient({
+      url: CeramicUrls[0]
+    })
+
+    modelClient = new ModelClient({
       ceramic: client,
-      did: authenticatedDID,
+      did: await randomDID()
     })
     modelStream = await modelClient.createDefinition(testModel)
   }, 10000)
@@ -152,11 +146,4 @@ describe('model integration test for list model and MID', () => {
     })
     expect(documentStream1.baseID).not.toEqual(documentStream2.baseID)
   })
-  afterAll(async () => {
-    await c1Container.teardown()
-  })
-
-  async function randomDID(): Promise<DID> {
-    return await getAuthenticatedDID(randomBytes(32))
-  }
 })

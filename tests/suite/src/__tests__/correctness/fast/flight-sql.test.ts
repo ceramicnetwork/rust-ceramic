@@ -1,3 +1,4 @@
+import { beforeAll, describe, expect, test } from '@jest/globals'
 import { InitEventPayload, SignedEvent, signEvent } from '@ceramic-sdk/events'
 import {
   type ClientOptions,
@@ -14,15 +15,13 @@ import { tableFromIPC } from 'apache-arrow'
 import type { DID } from 'dids'
 import { base16 } from 'multiformats/bases/base16'
 import type { CID } from 'multiformats/cid'
-import CeramicOneContainer from '../src'
-import type { EnvironmentOptions } from '../src'
+import { urlsToEndpoint } from '../../../utils/common'
 
-const CONTAINER_OPTS: EnvironmentOptions = {
-  containerName: 'ceramic-test-flight',
-  apiPort: 5222,
-  flightSqlPort: 5223,
-  testPort: 5223,
-}
+
+const CeramicUrls = String(process.env.CERAMIC_URLS).split(',')
+const CeramicFlightUrls = String(process.env.CERAMIC_FLIGHT_URLS).split(',')
+const CeramicFlightEndpoints = urlsToEndpoint(CeramicFlightUrls);
+
 
 const OPTIONS: ClientOptions = {
   headers: new Array(),
@@ -30,8 +29,8 @@ const OPTIONS: ClientOptions = {
   password: undefined,
   token: undefined,
   tls: false,
-  host: '127.0.0.1',
-  port: CONTAINER_OPTS.flightSqlPort,
+  host: CeramicFlightEndpoints[0].host,
+  port: CeramicFlightEndpoints[0].port,
 }
 
 async function getClient(): Promise<FlightSqlClient> {
@@ -39,14 +38,12 @@ async function getClient(): Promise<FlightSqlClient> {
 }
 
 describe('flight sql', () => {
-  let c1Container: CeramicOneContainer
   const ceramicClient = new CeramicClient({
-    url: `http://127.0.0.1:${CONTAINER_OPTS.apiPort}`,
+    url: CeramicUrls[0],
   })
   let authenticatedDID: DID
 
   beforeAll(async () => {
-    c1Container = await CeramicOneContainer.startContainer(CONTAINER_OPTS)
     authenticatedDID = await getAuthenticatedDID(new Uint8Array(32))
   }, 20000)
 
@@ -263,9 +260,6 @@ describe('flight sql', () => {
     expect(await query.next()).toBeNull()
   }, 20000)
 
-  afterAll(async () => {
-    await c1Container.teardown()
-  })
 
   async function writeNewEvent(
     ceramicClient: CeramicClient,

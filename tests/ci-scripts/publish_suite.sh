@@ -35,4 +35,5 @@ docker buildx build \
     $CACHE_ARGS \
     --build-arg BUILD_PROFILE=${BUILD_PROFILE} \
     -t ${IMAGE_NAME}:$tag \
-    .
+    -f Dockerfile \
+    ../.. # Use the repo root as the context so that we can include the sdk source

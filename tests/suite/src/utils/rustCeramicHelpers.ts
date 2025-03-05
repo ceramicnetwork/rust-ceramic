@@ -5,6 +5,9 @@ import * as dagCbor from '@ipld/dag-cbor'
 import { sha256 } from 'multihashes-sync/sha2'
 import { GenesisCommit, GenesisHeader } from '@ceramicnetwork/common'
 import { randomBytes } from 'crypto'
+import { FlightSqlClient } from '@ceramic-sdk/flight-sql-client'
+import { base64 } from 'multiformats/bases/base64'
+import type { CID } from 'multiformats/cid'
 
 export interface ReconEventInput {
   /// The car file multibase encoded
@@ -57,4 +60,15 @@ export function randomEvents(modelID: StreamID, count: number): ReconEvent[] {
     modelEvents.push(event)
   }
   return modelEvents
+}
+
+// Wait for count events states
+export async function waitForEventState(
+  flightClient: FlightSqlClient,
+  event_cid: CID,
+) {
+  await flightClient.preparedQuery(
+    'SELECT event_state_order FROM event_states_feed WHERE event_cid = $event_cid LIMIT 1',
+    new Array(['$event_cid', event_cid.toString(base64.encoder)]),
+  )
 }

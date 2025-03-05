@@ -41,7 +41,7 @@
     "@ceramic-sdk/http-client": "workspace:^",
     "@ceramic-sdk/test-utils": "workspace:^",
     "@didtools/key-did": "^1.0.0",
-    "dids": "^5.0.2",
+    "dids": "^5.0.3",
     "ts-essentials": "^10.0.2"
   },
   "jest": {

@@ -25,7 +25,7 @@ import { createInitHeader, getPatchOperations } from './utils.js'
  */
 export type CreateInitEventParams<T extends UnknownContent = UnknownContent> = {
   /** Initial JSON object content for the ModelInstanceDocument stream */
-  content: T
+  content: T | null
   /** DID controlling the ModelInstanceDocument stream */
   controller: DID
   /** Stream ID of the Model used by the ModelInstanceDocument stream */

@@ -35,7 +35,7 @@
     "@ceramic-sdk/identifiers": "workspace:^"
   },
   "devDependencies": {
-    "dids": "^5.0.2"
+    "dids": "^5.0.3"
   },
   "jest": {
     "extensionsToTreatAsEsm": [".ts"],
