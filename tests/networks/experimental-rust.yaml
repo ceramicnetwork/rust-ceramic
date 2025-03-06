@@ -14,14 +14,10 @@ spec:
         rust:
           env:
             CERAMIC_ONE_EXPERIMENTAL_FEATURES: "true"
-            CERAMIC_ONE_EVENT_VALIDATION: "true"
-            CERAMIC_ONE_ETHEREUM_RPC_URLS: "http://ganache:8545"
             CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL: "http://cas:8081"
             CERAMIC_ONE_ANCHOR_INTERVAL: 1
             CERAMIC_ONE_ANCHOR_POLL_INTERVAL: 5
-            CERAMIC_ONE_AGGREGATOR: "true"
             CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS: "0.0.0.0:5102"
-            CERAMIC_ONE_OBJECT_STORE_URL: "file://./pipeline"
           resourceLimits:
             cpu: "4"
             memory: "1Gi"

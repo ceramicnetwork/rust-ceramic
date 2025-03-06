@@ -122,12 +122,17 @@ Using this workflow you can build the test suite image locally, load the image i
 run the tests in the network.
 
     cd tests
-    # Choose a meaningful but local name for the image
+    # Choose a meaningful but local name for the test suite image
     export TEST_SUITE_IMAGE_NAME=3box/ceramic-tests-suite
+    # Choose a meaningful but local name for the ceramic-one image
+    export CERAMIC_ONE_IMAGE_NAME=3box/ceramic-one
     # Build the test suite image locally, do not publish
     make build-suite
-    # Load the built image into kind
+    # Build the ceramic-one image locally, do not publish
+    make build-ceramic-one
+    # Load the built images into kind
     kind load docker-image 3box/ceramic-tests-suite:dev-run
+    kind load docker-image 3box/ceramic-one:dev-run
     # Build and run the hermetic test driver using the test suite image
     make hermetic-tests
 

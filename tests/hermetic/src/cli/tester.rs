@@ -26,7 +26,10 @@ use k8s_openapi::{
     },
     ClusterResourceScope, NamespaceResourceScope,
 };
-use keramik_operator::{network::Network, simulation::Simulation};
+use keramik_operator::{
+    network::{IpfsSpec, Network},
+    simulation::Simulation,
+};
 use kube::{
     api::{
         Api, DeleteParams, ListParams, LogParams, ObjectMeta, Patch, PatchParams, PostParams,
@@ -60,6 +63,8 @@ pub struct TestConfig {
     pub network: PathBuf,
 
     pub test_image: Option<String>,
+
+    pub ceramic_one_image: Option<String>,
 
     pub flavor: Flavor,
 
@@ -100,11 +105,12 @@ impl Display for Flavor {
     }
 }
 
-async fn parse_network_file(
+async fn load_network_file(
     file_path: impl AsRef<Path>,
     ttl: u64,
     flavor: &Flavor,
     suffix: &Option<String>,
+    ceramic_one_image: &Option<String>,
 ) -> Result<Network> {
     // Parse network file
     let mut network: Network = serde_yaml::from_str(&fs::read_to_string(file_path).await?)?;
@@ -129,6 +135,25 @@ async fn parse_network_file(
         }
     }
     network.metadata.name = Some(network_name.clone());
+
+    if let Some(ceramic_one_image) = ceramic_one_image {
+        network.spec.ceramic = network.spec.ceramic.map(|ceramic_specs| {
+            ceramic_specs
+                .into_iter()
+                .map(|mut ceramic_spec| {
+                    ceramic_spec.ipfs = match ceramic_spec.ipfs {
+                        Some(IpfsSpec::Rust(mut spec)) => {
+                            spec.image = Some(ceramic_one_image.clone());
+                            spec.image_pull_policy = Some("IfNotPresent".to_owned());
+                            Some(IpfsSpec::Rust(spec))
+                        }
+                        spec => spec,
+                    };
+                    ceramic_spec
+                })
+                .collect()
+        });
+    }
     Ok(network)
 }
 
@@ -137,8 +162,14 @@ pub async fn run(opts: TestConfig) -> Result<()> {
     let client = Client::try_default().await?;
 
     // Parse network file
-    let network =
-        parse_network_file(opts.network, opts.network_ttl, &opts.flavor, &opts.suffix).await?;
+    let network = load_network_file(
+        opts.network,
+        opts.network_ttl,
+        &opts.flavor,
+        &opts.suffix,
+        &opts.ceramic_one_image,
+    )
+    .await?;
     debug!("configured network {:#?}", network);
     let network_name = network.name_unchecked();
 
@@ -233,8 +264,14 @@ pub async fn run(opts: TestConfig) -> Result<()> {
         } => {
             // Wait designated time before starting the migration
             sleep(Duration::from_secs(wait_secs)).await;
-            let migration_network =
-                parse_network_file(migration, opts.network_ttl, &opts.flavor, &opts.suffix).await?;
+            let migration_network = load_network_file(
+                migration,
+                opts.network_ttl,
+                &opts.flavor,
+                &opts.suffix,
+                &opts.ceramic_one_image,
+            )
+            .await?;
 
             // Apply the migration network
             apply_resource(client.clone(), migration_network).await?;

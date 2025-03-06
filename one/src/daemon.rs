@@ -180,7 +180,6 @@ pub struct DaemonOpts {
     #[arg(
         long,
         env = "CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS",
-        requires = "object_store_url",
         default_value = "127.0.0.1:5102"
     )]
     flight_sql_bind_address: String,
