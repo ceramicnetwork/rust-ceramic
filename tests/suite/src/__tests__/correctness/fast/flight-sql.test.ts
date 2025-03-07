@@ -10,12 +10,12 @@ import type { StreamID } from '@ceramic-sdk/identifiers'
 import { ModelClient } from '@ceramic-sdk/model-client'
 import type { ModelDefinition } from '@ceramic-sdk/model-protocol'
 import { asDIDString } from '@didtools/codecs'
-import { getAuthenticatedDID } from '@didtools/key-did'
 import { tableFromIPC } from 'apache-arrow'
 import type { DID } from 'dids'
 import { base16 } from 'multiformats/bases/base16'
 import type { CID } from 'multiformats/cid'
 import { urlsToEndpoint } from '../../../utils/common'
+import { randomDID } from '../../../utils/didHelper'
 
 
 const CeramicUrls = String(process.env.CERAMIC_URLS).split(',')
@@ -44,7 +44,7 @@ describe('flight sql', () => {
   let authenticatedDID: DID
 
   beforeAll(async () => {
-    authenticatedDID = await getAuthenticatedDID(new Uint8Array(32))
+    authenticatedDID = await randomDID()
   }, 20000)
 
   test('makes query', async () => {
