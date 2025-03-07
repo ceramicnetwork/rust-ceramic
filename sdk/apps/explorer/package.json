@@ -1,0 +1,47 @@
+{
+  "name": "explorer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "c1": "ceramic-one daemon --store-dir=./.ceramic-one --p2p-key-dir=./.ceramic-one",
+    "seed": "tsx ./scripts/seed.ts",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "deploy": "ipfs add -r --cid-version=1 --pin=true ./dist"
+  },
+  "dependencies": {
+    "@ceramic-sdk/events": "workspace:^",
+    "@ceramic-sdk/http-client": "workspace:^",
+    "@ceramic-sdk/identifiers": "workspace:^",
+    "@ceramic-sdk/model-instance-protocol": "workspace:^",
+    "@ceramic-sdk/model-protocol": "workspace:^",
+    "@didtools/key-did": "^1.0.0",
+    "@mantine/core": "^7.12.2",
+    "@mantine/hooks": "^7.12.2",
+    "@tabler/icons-react": "^3.17.0",
+    "@tanstack/react-query": "^5.56.2",
+    "@tanstack/react-router": "^1.58.9",
+    "codeco": "^1.4.3",
+    "jotai": "^2.10.0",
+    "multiformats": "^13.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@ceramic-sdk/model-client": "workspace:^",
+    "@ceramic-sdk/model-instance-client": "workspace:^",
+    "@tanstack/router-devtools": "^1.58.9",
+    "@tanstack/router-plugin": "^1.58.4",
+    "@types/react": "^18.3.9",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "postcss": "^8.4.47",
+    "postcss-preset-mantine": "^1.17.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "ts-essentials": "10.0.2"
+  }
+}

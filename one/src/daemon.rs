@@ -180,10 +180,9 @@ pub struct DaemonOpts {
     #[arg(
         long,
         env = "CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS",
-        requires = "experimental_features",
-        requires = "object_store_url"
+        default_value = "127.0.0.1:5102"
     )]
-    flight_sql_bind_address: Option<String>,
+    flight_sql_bind_address: String,
 
     /// Remote anchor service URL. Requires using the experimental-features flag
     #[arg(
@@ -249,15 +248,6 @@ pub struct DaemonOpts {
     )]
     ethereum_rpc_urls: Vec<String>,
 
-    /// Enable the aggregator, requires Flight SQL and object store to be defined.
-    #[arg(
-        long,
-        requires = "flight_sql_bind_address",
-        requires = "object_store_url",
-        env = "CERAMIC_ONE_AGGREGATOR"
-    )]
-    aggregator: Option<bool>,
-
     /// Location of the object store bucket, of the form:
     ///
     ///   * s3://<bucket_name>
@@ -280,10 +270,10 @@ pub struct DaemonOpts {
     /// Requires using the experimental-features flag
     #[arg(
         long,
-        requires = "experimental_features",
-        env = "CERAMIC_ONE_OBJECT_STORE_URL"
+        env = "CERAMIC_ONE_OBJECT_STORE_URL",
+        default_value = "file://./pipeline"
     )]
-    object_store_url: Option<url::Url>,
+    object_store_url: url::Url,
 }
 
 async fn get_eth_rpc_providers(
@@ -590,61 +580,53 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         })?;
 
     // Start Flight server
-    let (flight_handle, pipeline) = if let Some(addr) = opts.flight_sql_bind_address {
-        let addr = addr.parse()?;
-        let feed = event_svc.clone();
-        let object_store_url = opts.object_store_url.ok_or_else(|| {
-            anyhow!("object_store_url option is required when exposing flight sql")
-        })?;
-        let object_store: Arc<dyn object_store::ObjectStore> = match object_store_url.scheme() {
-            "s3" => Arc::new(
-                AmazonS3Builder::from_env()
-                    .with_bucket_name(object_store_url.host_str().ok_or_else(|| {
-                        anyhow!("object_store_url must have a bucket name in the host position")
-                    })?)
-                    .build()?,
-            ),
-            "file" => {
-                debug!(url=?object_store_url, host=?object_store_url.host_str(), path=?object_store_url.path(), "object_store_url");
-                let path = if let Some(host) = object_store_url.host_str() {
-                    debug!(store_dir=%store_dir.display(),host, "is relative");
-                    if host == "." {
-                        store_dir.join(object_store_url.path().trim_start_matches('/'))
-                    } else {
-                        bail!("object_store_url must have a relative or absolute path");
-                    }
+    let addr = opts.flight_sql_bind_address.parse()?;
+    let feed = event_svc.clone();
+    let object_store: Arc<dyn object_store::ObjectStore> = match opts.object_store_url.scheme() {
+        "s3" => Arc::new(
+            AmazonS3Builder::from_env()
+                .with_bucket_name(opts.object_store_url.host_str().ok_or_else(|| {
+                    anyhow!("object_store_url must have a bucket name in the host position")
+                })?)
+                .build()?,
+        ),
+        "file" => {
+            debug!(url=?opts.object_store_url, host=?opts.object_store_url.host_str(), path=?opts.object_store_url.path(), "object_store_url");
+            let path = if let Some(host) = opts.object_store_url.host_str() {
+                debug!(store_dir=%store_dir.display(),host, "is relative");
+                if host == "." {
+                    store_dir.join(opts.object_store_url.path().trim_start_matches('/'))
                 } else {
-                    object_store_url.path().into()
-                };
-                // Create object_store dir if it does not exist.
-                if !tokio::fs::try_exists(&path).await? {
-                    tokio::fs::create_dir(&path).await?;
+                    bail!("object_store_url must have a relative or absolute path");
                 }
-                debug!(path = %path.display(), "object store path");
-                Arc::new(LocalFileSystem::new_with_prefix(path)?)
+            } else {
+                opts.object_store_url.path().into()
+            };
+            // Create object_store dir if it does not exist.
+            if !tokio::fs::try_exists(&path).await? {
+                tokio::fs::create_dir(&path).await?;
             }
-            scheme => bail!("unsupported object_store_url scheme {scheme}"),
-        };
-
-        let pipeline = ceramic_pipeline::spawn_actors(ceramic_pipeline::Config {
-            aggregator: opts.aggregator.unwrap_or(false),
-            conclusion_feed: feed.into(),
-            object_store,
-            metrics: pipeline_metrics,
-            shutdown: shutdown.clone(),
-        })
-        .await?;
-
-        let session_ctx = pipeline.pipeline_ctx().session();
-        let flight_handle = tokio::spawn(ceramic_flight::server::run(
-            session_ctx,
-            addr,
-            shutdown.wait_fut(),
-        ));
-        (Some(flight_handle), Some(pipeline))
-    } else {
-        (None, None)
+            debug!(path = %path.display(), "object store path");
+            Arc::new(LocalFileSystem::new_with_prefix(path)?)
+        }
+        scheme => bail!("unsupported object_store_url scheme {scheme}"),
     };
+
+    let pipeline = ceramic_pipeline::spawn_actors(ceramic_pipeline::Config {
+        aggregator: true,
+        conclusion_feed: feed.into(),
+        object_store,
+        metrics: pipeline_metrics,
+        shutdown: shutdown.clone(),
+    })
+    .await?;
+
+    let session_ctx = pipeline.pipeline_ctx().session();
+    let flight_handle = tokio::spawn(ceramic_flight::server::run(
+        session_ctx,
+        addr,
+        shutdown.wait_fut(),
+    ));
 
     // Start anchoring if remote anchor service URL is provided
     let anchor_service_handle =
@@ -675,12 +657,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
             None
         };
 
-    let (pipeline_handle, pipeline_waiter) = if let Some(pipeline) = pipeline {
-        let (h, w) = pipeline.into_parts();
-        (Some(h), Some(w))
-    } else {
-        (None, None)
-    };
+    let (pipeline_handle, pipeline_waiter) = pipeline.into_parts();
     // Build HTTP server
     let mut ceramic_server = ceramic_api::Server::new(
         node_id,
@@ -688,7 +665,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         interest_api_svc,
         Arc::new(model_svc),
         ipfs.client(),
-        pipeline_handle,
+        Some(pipeline_handle),
         shutdown.clone(),
     );
     if opts.authentication {
@@ -746,14 +723,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     signals_handle.await?;
     debug!("signal handler stopped");
 
-    if let Some(flight_handle) = flight_handle {
-        let _ = flight_handle.await;
-    }
+    let _ = flight_handle.await;
     debug!("flight sql server stopped");
 
-    if let Some(pipeline_waiter) = pipeline_waiter {
-        let _ = pipeline_waiter.wait().await;
-    }
+    let _ = pipeline_waiter.wait().await;
     debug!("pipeline actors stopped");
 
     if let Some(anchor_service_handle) = anchor_service_handle {

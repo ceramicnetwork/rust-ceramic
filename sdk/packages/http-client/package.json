@@ -1,0 +1,59 @@
+{
+  "name": "@ceramic-sdk/http-client",
+  "version": "0.2.1",
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "http", "client"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/http-client"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "generate": "openapi-typescript https://raw.githubusercontent.com/ceramicnetwork/rust-ceramic/main/api-server/api/openapi.yaml -o ./src/__generated__/api.ts",
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepare": "pnpm build",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@ceramic-sdk/events": "workspace:^",
+    "openapi-fetch": "^0.12.2"
+  },
+  "devDependencies": {
+    "cartonne": "^3.0.1",
+    "codeco": "^1.4.3",
+    "multiformats": "^13.3.0",
+    "openapi-typescript": "^7.4.1",
+    "type-fest": "^4.26.1"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

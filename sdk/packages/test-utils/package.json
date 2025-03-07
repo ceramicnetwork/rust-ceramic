@@ -1,0 +1,57 @@
+{
+  "name": "@ceramic-sdk/test-utils",
+  "version": "0.2.0",
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "test"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/test-utils"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@didtools/cacao": "^3.0.1",
+    "@noble/hashes": "^1.5.0",
+    "caip": "^1.1.1",
+    "did-session": "^4.0.0",
+    "dids": "^5.0.3",
+    "viem": "^2.21.14"
+  },
+  "devDependencies": {
+    "@didtools/pkh-ethereum": "^0.6.0"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}

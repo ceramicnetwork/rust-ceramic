@@ -1,0 +1,27 @@
+{
+  "$schema": "https://typedoc-plugin-markdown.org/schema.json",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/events",
+    "packages/http-client",
+    "packages/identifiers",
+    "packages/model-client",
+    "packages/model-instance-client",
+    "packages/model-instance-protocol",
+    "packages/model-instance-handler",
+    "packages/model-protocol",
+    "packages/stream-client"
+  ],
+  "name": "Ceramic SDK",
+  "packageOptions": {
+    "disableSources": true,
+    "entryPoints": ["src/index.ts"],
+    "excludeExternals": true,
+    "excludeInternal": true,
+    "includeVersion": true,
+    "readme": "none"
+  },
+  "out": "./docs",
+  "plugin": ["typedoc-plugin-markdown"],
+  "readme": "none"
+}

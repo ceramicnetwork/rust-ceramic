@@ -1,24 +1,15 @@
 import { beforeAll, describe, expect, test } from '@jest/globals'
 import { utilities } from '../../../utils/common.js'
 import fetch from 'cross-fetch'
-import { randomCID, StreamID } from '@ceramicnetwork/streamid'
-import { ReconEvent, ReconEventInput, randomEvents } from '../../../utils/rustCeramicHelpers.js'
+import { randomCID } from '@ceramicnetwork/streamid'
+import { StreamID } from '@ceramic-sdk/identifiers'
+import { ReconEvent, ReconEventInput, randomEvents, registerInterest } from '../../../utils/rustCeramicHelpers.js'
 
 const delayMs = utilities.delayMs
 // Environment variables
 const CeramicUrls = String(process.env.CERAMIC_URLS).split(',')
 const READ_EVENTS_TIMEOUT_MS = 60 * 1000
 
-async function registerInterest(url: string, model: StreamID): Promise<void> {
-  const response = await fetch(url + `/ceramic/interests/model/${model.toString()}`, {
-    method: 'POST',
-  })
-  if (response.status !== 204) {
-    const data = await response.text()
-    console.warn(`registerInterest: node: ${url}, model: ${model.toString()}, result: ${data}`)
-  }
-  expect(response.status).toEqual(204)
-}
 
 async function getStartingToken(url: string): Promise<string> {
   const tokenResponse = await fetch(url + `/ceramic/feed/resumeToken`, { method: 'GET' })
@@ -216,7 +207,7 @@ describe('sync events', () => {
     await writeEvents(firstNodeUrl, secondHalf)
     const eventCids = modelEvents.map((e) => e.id)
 
-    await waitForEventCount(CeramicUrls,eventCids, resumeTokens)
+    await waitForEventCount(CeramicUrls, eventCids, resumeTokens)
 
     // Use a sorted expected value for stable tests
     const sortedModelEvents = sortModelEvents(modelEvents)

@@ -2,6 +2,19 @@
 
 import { CommonTestUtils } from '@ceramicnetwork/common-test-utils'
 
+
+export interface Endpoint {
+  host: string;
+  port: number;
+}
+
+export function urlsToEndpoint(urls: string[]): Endpoint[] {
+  return urls.map(url => {
+    const parsed_url = new URL(url);
+    return { host: parsed_url.hostname, port: parseInt(parsed_url.port, 10) };
+  });
+}
+
 export const utilities = {
   valid: (exp: any) => {
     return exp !== undefined && exp !== null
@@ -66,3 +79,4 @@ export class EventAccumulator<T> {
     })
   }
 }
+

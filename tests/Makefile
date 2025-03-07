@@ -27,6 +27,18 @@ CARGO = RUSTFLAGS="-D warnings" cargo
 CARGO_RUN = ${CARGO} run --locked --profile ${BUILD_PROFILE}
 CARGO_BUILD = ${CARGO} build --locked --profile ${BUILD_PROFILE}
 
+ifneq ($(CERAMIC_ONE_IMAGE_NAME),)
+CERAMIC_ONE_IMAGE_TAG ?= ${BUILD_TAG}
+CERAMIC_ONE_IMAGE = ${CERAMIC_ONE_IMAGE_NAME}:${CERAMIC_ONE_IMAGE_TAG}
+endif
+ifneq ($(CERAMIC_ONE_IMAGE_TAG),)
+CERAMIC_ONE_IMAGE_NAME ?= public.ecr.aws/r5b3e0r5/3box/ceramic-one
+CERAMIC_ONE_IMAGE = ${CERAMIC_ONE_IMAGE_NAME}:${CERAMIC_ONE_IMAGE_TAG}
+endif
+ifneq ($(CERAMIC_ONE_IMAGE),)
+CERAMIC_ONE_IMAGE_ARG = --ceramic-one-image ${CERAMIC_ONE_IMAGE}
+endif
+
 # Command to run the hermetic driver
 # Defaults to using cargo run
 HERMETIC_CMD ?= ${CARGO_RUN} --bin hermetic-driver --
@@ -89,6 +101,10 @@ build-suite:
 publish-suite:
 	BUILD_PROFILE=${BUILD_PROFILE} IMAGE_NAME=${TEST_SUITE_IMAGE_NAME} ./ci-scripts/publish_suite.sh ${BUILD_TAG}
 
+.PHONY: build-ceramic-one
+build-ceramic-one:
+	cd .. && BUILD_MODE=${BUILD_PROFILE} IMAGE_NAME=${CERAMIC_ONE_IMAGE_NAME} CUSTOM_TAG=${CERAMIC_ONE_IMAGE_TAG} TAG_LATEST=false NO_PUSH=true ./ci-scripts/publish.sh
+
 .PHONY: publish-hermetic-driver
 publish-hermetic-driver:
 	IMAGE_NAME=${TEST_SUITE_IMAGE_NAME} ./ci-scripts/publish_hermetic_driver.sh ${BUILD_TAG}
@@ -106,6 +122,7 @@ hermetic-tests:
 		--suffix "${HERMETIC_SUFFIX}" \
 		--network-ttl ${HERMETIC_TTL} \
 		--test-image "${TEST_SUITE_IMAGE}" \
+		${CERAMIC_ONE_IMAGE_ARG} \
 		--test-selector "${TEST_SELECTOR}"
 
 .PHONY: migration-tests
@@ -116,6 +133,7 @@ migration-tests:
 		--suffix "${HERMETIC_SUFFIX}" \
 		--network-ttl ${HERMETIC_TTL} \
 		--test-image "${TEST_SUITE_IMAGE}" \
+		${CERAMIC_ONE_IMAGE_ARG} \
 		--test-selector "migration" \
 		--migration-wait-secs 400 \
 		--migration-network "${TEST_POST_MIGRATION_NETWORK}"

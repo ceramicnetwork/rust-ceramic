@@ -1,0 +1,7 @@
+.tabsRoot {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.marginTop {
+  margin-top: var(--mantine-spacing-sm);
+}

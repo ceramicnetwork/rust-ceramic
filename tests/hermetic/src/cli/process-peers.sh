@@ -17,6 +17,7 @@ until [ "$n" -ge 30 ];
 
       CERAMIC_URLS=$(jq -j '[.[].ceramic.ipfsRpcAddr | select(.)] | join(",")' < /peers/peers.json)
       COMPOSEDB_URLS=$(jq -j '[.[].ceramic.ceramicAddr | select(.)] | join(",")' < /peers/peers.json)
+      CERAMIC_FLIGHT_URLS=$(jq -j '[.[].ceramic.flightAddr | select(.)] | join(",")' < /peers/peers.json)
 
       # Set up the env var with admin DID seeds to be a comma separated list with the same secret
       # repeated based on the number of nodes being started
@@ -32,6 +33,7 @@ until [ "$n" -ge 30 ];
 
       echo "CERAMIC_URLS=$CERAMIC_URLS" > /config/.env
       echo "COMPOSEDB_URLS=$COMPOSEDB_URLS" >> /config/.env
+      echo "CERAMIC_FLIGHT_URLS=$CERAMIC_FLIGHT_URLS" >> /config/.env
       echo "COMPOSEDB_ADMIN_DID_SEEDS=$COMPOSEDB_ADMIN_DID_SEEDS" >> /config/.env
 
       echo "Populated env"

@@ -220,15 +220,6 @@ jobs:
           export TEST_NETWORK=./networks/${{ matrix.networks }}.yaml
           chmod +x ../bin/hermetic-driver
 
-          # Setup network yaml to be use the ceramic-one image build for this run (i.e. its git sha)
-          RUST_CERAMIC_IMAGE_TAG='${{ needs.build.outputs.image_tag }}'
-          RUST_CERAMIC_IMAGE_REPO='public.ecr.aws/r5b3e0r5/3box/ceramic-one'
-          export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
-          curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ../bin/yq
-          chmod +x ../bin/yq
-          ../bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' $TEST_NETWORK
-          ../bin/yq --no-colors $TEST_NETWORK
-
           # For scheduled events, "test_selector" will be null, so default to running all tests.
           test_selector=${{ github.event.inputs.test_selector || 'correctness' }}
 
@@ -236,7 +227,7 @@ jobs:
           if [[ ${{ github.event_name == 'pull_request' }} == 'true' ]]; then
               test_selector="correctness/fast"
           fi
-          make TEST_SELECTOR="$test_selector" HERMETIC_CMD=../bin/hermetic-driver hermetic-tests
+          make CERAMIC_ONE_IMAGE_TAG="${{ needs.build.outputs.image_tag }}"  TEST_SELECTOR="$test_selector" HERMETIC_CMD=../bin/hermetic-driver hermetic-tests
 
   run-migration-tests:
     name: Run Migration Tests
@@ -275,16 +266,7 @@ jobs:
           TEST_NETWORK=./migration-networks/basic-go-rust-post.yaml
           chmod +x ../bin/hermetic-driver
 
-          # Setup network yaml to be use the ceramic-one image build for this run (i.e. its git sha)
-          RUST_CERAMIC_IMAGE_TAG='${{ needs.build.outputs.image_tag }}'
-          RUST_CERAMIC_IMAGE_REPO='public.ecr.aws/r5b3e0r5/3box/ceramic-one'
-          export RUST_CERAMIC_IMAGE=${RUST_CERAMIC_IMAGE_REPO}:${RUST_CERAMIC_IMAGE_TAG}
-          curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o ../bin/yq
-          chmod +x ../bin/yq
-          ../bin/yq -i '.spec.ceramic[0].ipfs.rust.image = strenv(RUST_CERAMIC_IMAGE)' $TEST_NETWORK
-          ../bin/yq --no-colors $TEST_NETWORK
-
-          make HERMETIC_CMD=../bin/hermetic-driver migration-tests
+          make CERAMIC_ONE_IMAGE_TAG="${{ needs.build.outputs.image_tag }}" HERMETIC_CMD=../bin/hermetic-driver migration-tests
 
   integration-test-results:
     name: Hermetic Test Results

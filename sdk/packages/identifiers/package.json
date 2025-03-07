@@ -1,0 +1,58 @@
+{
+  "name": "@ceramic-sdk/identifiers",
+  "version": "0.2.0",
+  "author": "3Box Labs",
+  "license": "(Apache-2.0 OR MIT)",
+  "keywords": ["ceramic", "identifiers"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicstudio/ceramic-sdk",
+    "directory": "packages/identifiers"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build:clean": "del dist",
+    "build:js": "swc src -d ./dist --config-file ../../.swcrc --strip-leading-paths",
+    "build:types": "tsc --project tsconfig.json --emitDeclarationOnly --skipLibCheck",
+    "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
+    "test:ci": "pnpm run test --ci --coverage",
+    "prepare": "pnpm build",
+    "prepublishOnly": "package-check"
+  },
+  "dependencies": {
+    "@ipld/dag-cbor": "^9.2.1",
+    "codeco": "^1.4.3",
+    "mapmoize": "^1.2.1",
+    "multiformats": "^13.3.0",
+    "uint8arrays": "^5.1.0",
+    "varint": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/varint": "^6.0.3"
+  },
+  "jest": {
+    "extensionsToTreatAsEsm": [".ts"],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.(t|j)s$": [
+        "@swc/jest",
+        {
+          "root": "../.."
+        }
+      ]
+    }
+  }
+}
