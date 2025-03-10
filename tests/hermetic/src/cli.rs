@@ -36,6 +36,12 @@ pub struct TestOpts {
     #[arg(short, long)]
     test_image: Option<String>,
 
+    /// Name and label of the specific ceramic-one image to use.
+    /// Defaults to latest published image.
+    /// Setting this value implies an image pull policy of IfNotPresent
+    #[arg(short, long)]
+    ceramic_one_image: Option<String>,
+
     /// Type of tests to run.
     #[arg(short, long)]
     flavor: FlavorOpts,
@@ -121,6 +127,7 @@ impl TryFrom<TestOpts> for TestConfig {
             network,
             simulation,
             test_image,
+            ceramic_one_image,
             flavor,
             suffix,
             network_ttl,
@@ -147,6 +154,7 @@ impl TryFrom<TestOpts> for TestConfig {
         Ok(TestConfig {
             network,
             test_image,
+            ceramic_one_image,
             flavor,
             suffix,
             network_ttl,

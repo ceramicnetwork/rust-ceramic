@@ -11,23 +11,28 @@
 # to login to docker. That password will be valid for 12h.
 
 BUILD_MODE=${BUILD_MODE-release}
+IMAGE_NAME=${IMAGE_NAME-public.ecr.aws/r5b3e0r5/3box/ceramic-one}
 
 docker buildx build --load --build-arg="BUILD_MODE=$BUILD_MODE" -t 3box/ceramic-one .
 
 if [[ -n "$SHA" ]]; then
-  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$SHA"
+  docker tag 3box/ceramic-one:latest ${IMAGE_NAME}:"$SHA"
 fi
 if [[ -n "$SHA_TAG" ]]; then
-  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$SHA_TAG"
+  docker tag 3box/ceramic-one:latest ${IMAGE_NAME}:"$SHA_TAG"
 fi
 if [[ -n "$RELEASE_TAG" ]]; then
-  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$RELEASE_TAG"
+  docker tag 3box/ceramic-one:latest ${IMAGE_NAME}:"$RELEASE_TAG"
 fi
 if [[ "$TAG_LATEST" == "true" ]]; then
-  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:latest
+  docker tag 3box/ceramic-one:latest ${IMAGE_NAME}:latest
 fi
 if [[ -n "$CUSTOM_TAG" ]]; then
-  docker tag 3box/ceramic-one:latest public.ecr.aws/r5b3e0r5/3box/ceramic-one:"$CUSTOM_TAG"
+  docker tag 3box/ceramic-one:latest ${IMAGE_NAME}:"$CUSTOM_TAG"
 fi
 
-docker push -a public.ecr.aws/r5b3e0r5/3box/ceramic-one
+if [ "$NO_PUSH" != "true" ]
+then
+    docker push -a public.ecr.aws/r5b3e0r5/3box/ceramic-one
+fi
+

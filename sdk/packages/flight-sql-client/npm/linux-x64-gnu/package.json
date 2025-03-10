@@ -1,0 +1,24 @@
+{
+  "name": "@ceramic-sdk/flight-sql-client-linux-x64-gnu",
+  "version": "0.2.0",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "main": "flight-sql-client.linux-x64-gnu.node",
+  "files": ["flight-sql-client.linux-x64-gnu.node"],
+  "description": "A FlightSQL client for  Node.js",
+  "keywords": ["ceramic", "FlightSQL"],
+  "license": "MIT",
+  "engines": {
+    "node": ">= 10"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicnetwork/ceramic-sdk",
+    "directory": "packages/flight-sql-client/npm/linux-x64-gnu"
+  },
+  "libc": ["glibc"]
+}

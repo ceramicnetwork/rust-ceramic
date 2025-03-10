@@ -1,0 +1,43 @@
+[package]
+authors = [
+    "Robert Pack <robstar.pack@gmail.com>",
+    "David Estes <david@3box.io>",
+]
+edition = "2021"
+name = "flight-sql-client"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+arrow-array = "53"
+arrow-cast = "53"
+arrow-flight = { version = "53", features = ["flight-sql-experimental"] }
+arrow-ipc = "53"
+arrow-schema = "53"
+futures = "0.3"
+multibase = "0.9.1"
+napi = { version = "2.12.2", default-features = false, features = [
+    "napi8",
+    "tokio_rt",
+    "async",
+    "compat-mode",
+] }
+napi-derive = "2"
+snafu = "0.8"
+tokio = "1"
+tonic = { version = "0.12", features = ["tls"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
+
+# Keep this package in its own workspace
+[workspace]
