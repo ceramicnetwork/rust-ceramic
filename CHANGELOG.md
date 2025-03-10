@@ -2,11 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.53.0] - 2025-03-10
+
+### 🚀 Features
+
+- Make ceramic-sdk part of the repo, promote flight sql and aggregator ([#669](https://github.com/ceramicnetwork/rust-ceramic/issues/669))
+
+### ⚙️ Miscellaneous Tasks
+
+- Migrates ceramic-tests to this repo ([#668](https://github.com/ceramicnetwork/rust-ceramic/issues/668))
+
 ## [0.52.0] - 2025-02-24
 
 ### 🚀 Features
 
 - Schema validation ([#663](https://github.com/ceramicnetwork/rust-ceramic/issues/663))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.52.0 ([#667](https://github.com/ceramicnetwork/rust-ceramic/issues/667))
 
 ## [0.51.0] - 2025-02-18
 
