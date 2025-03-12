@@ -218,17 +218,14 @@ export class ModelClient extends StreamClient {
     params: UpdateModelDefinitionParams,
   ): Promise<ModelState> {
     let currentState: ModelState
-    let currentId: CommitID
 
     if (!params.currentState) {
       const streamState = await this.getStreamState(
         StreamID.fromString(params.streamID),
       )
       currentState = this.streamStateToModelState(streamState)
-      currentId = this.getCurrentID(streamState.event_cid)
     } else {
       currentState = this.streamStateToModelState(params.currentState)
-      currentId = this.getCurrentID(params.currentState.event_cid)
     }
 
     const { content } = currentState
@@ -238,7 +235,7 @@ export class ModelClient extends StreamClient {
       controller: this.getDID(controller),
       currentContent: content ?? undefined,
       newContent,
-      currentID: currentId,
+      currentID: currentState.commitID,
     })
 
     return {
@@ -252,16 +249,6 @@ export class ModelClient extends StreamClient {
           : {}),
       },
     }
-  }
-
-  /**
-   * Retrieves the `CommitID` for the provided stream ID.
-   *
-   * @param streamID - The stream ID string.
-   * @returns The `CommitID` for the stream.
-   */
-  getCurrentID(streamID: string): CommitID {
-    return new CommitID(2, streamID)
   }
 
   /**
