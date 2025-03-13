@@ -23,10 +23,10 @@ MANUAL_DEPLOY ?= false
 TEST_SELECTOR ?= .
 
 .PHONY: all
-all: check-deps check-fmt check-clippy build test
+all: check build test
 
 .PHONY: check
-check: check-deps check-fmt
+check: check-deps check-clippy check-fmt check-api-server check-kubo-rpc-server check-sdk-docs
 
 .PHONY: build
 build:
@@ -58,6 +58,11 @@ check-kubo-rpc-server:
 .PHONY: check-migrations
 check-migrations:
 	MIGRATE_DB=1 ./ci-scripts/check_migrations.sh
+
+# Checks SDK docs are up-to-date
+.PHONY: check-sdk-docs
+check-sdk-docs:
+	./ci-scripts/check_sdk_docs.sh
 
 # Applies migrations to a sqlite without prompting and deletes the file afterward
 .PHONY: check-migrations-ci

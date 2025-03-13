@@ -37,6 +37,8 @@ jobs:
         make check-kubo-rpc-server
     - name: Check deps
       run: make check-deps
+    - name: Check SDK docs
+      run: make check-sdk-docs
   test:
     name: Unit Test ceramic-one
     runs-on: ubuntu-latest
