@@ -12,6 +12,10 @@ Data event header for a ModelInstanceDocument Stream
 
 ## Type declaration
 
+### modelVersion
+
+> **modelVersion**: `OptionalCodec`\<`Type`\<`CID`\<`unknown`, `number`, `number`, `Version`\>, `CID`\<`unknown`, `number`, `number`, `Version`\>, `unknown`\>\>
+
 ### shouldIndex
 
 > **shouldIndex**: `OptionalCodec`\<`TrivialCodec`\<`boolean`\>\>

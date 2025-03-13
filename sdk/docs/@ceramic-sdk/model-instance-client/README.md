@@ -14,9 +14,9 @@
 
 - [CreateDataEventParams](type-aliases/CreateDataEventParams.md)
 - [CreateInitEventParams](type-aliases/CreateInitEventParams.md)
+- [CreateInstanceParams](type-aliases/CreateInstanceParams.md)
+- [CreateSingletonParams](type-aliases/CreateSingletonParams.md)
 - [PostDataParams](type-aliases/PostDataParams.md)
-- [PostDeterministicInitParams](type-aliases/PostDeterministicInitParams.md)
-- [PostSignedInitParams](type-aliases/PostSignedInitParams.md)
 - [UnknownContent](type-aliases/UnknownContent.md)
 
 ## Functions

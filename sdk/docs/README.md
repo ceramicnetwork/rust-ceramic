@@ -12,6 +12,5 @@
 - [@ceramic-sdk/model-client - v0.2.1](@ceramic-sdk/model-client/README.md)
 - [@ceramic-sdk/model-instance-client - v0.2.1](@ceramic-sdk/model-instance-client/README.md)
 - [@ceramic-sdk/model-instance-protocol - v0.2.1](@ceramic-sdk/model-instance-protocol/README.md)
-- [@ceramic-sdk/model-instance-handler - v0.2.1](@ceramic-sdk/model-instance-handler/README.md)
 - [@ceramic-sdk/model-protocol - v0.2.1](@ceramic-sdk/model-protocol/README.md)
 - [@ceramic-sdk/stream-client - v0.2.1](@ceramic-sdk/stream-client/README.md)

@@ -34,6 +34,13 @@ Current JSON object content for the stream, used with `newContent` to create a J
 
 Commit ID of the current tip of the ModelInstanceDocument stream
 
+### modelVersion?
+
+> `optional` **modelVersion**: `CID`
+
+CID of specific model version to use when validating this instance.
+When empty the the init commit of the model is used
+
 ### newContent?
 
 > `optional` **newContent**: `T`
