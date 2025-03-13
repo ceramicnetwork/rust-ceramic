@@ -18,7 +18,7 @@ Parameters required to create a non-deterministic initialization event for a Mod
 
 ### content
 
-> **content**: `T`
+> **content**: `T` \| `null`
 
 Initial JSON object content for the ModelInstanceDocument stream
 
@@ -39,6 +39,13 @@ DID controlling the ModelInstanceDocument stream
 > **model**: [`StreamID`](../../identifiers/classes/StreamID.md)
 
 Stream ID of the Model used by the ModelInstanceDocument stream
+
+### modelVersion?
+
+> `optional` **modelVersion**: `CID`
+
+CID of specific model version to use when validating this instance.
+When empty the the init commit of the model is used
 
 ### shouldIndex?
 

@@ -10,7 +10,7 @@ Extends the StreamClient to add functionality for interacting with Ceramic model
 
 The `ModelInstanceClient` class provides methods to:
 - Retrieve events and document states
-- Post deterministic and signed initialization events
+- Create instances and singleton of models
 - Update existing documents with new content
 
 ## Extends
@@ -63,23 +63,40 @@ The `CeramicClient` instance associated with this StreamClient.
 
 ## Methods
 
-### getCurrentID()
+### createInstance()
 
-> **getCurrentID**(`streamID`): [`CommitID`](../../identifiers/classes/CommitID.md)
+> **createInstance**\<`T`\>(`params`): `Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
 
-Retrieves the `CommitID` for the provided stream ID.
+Creates an instance of a model. The model must have an account relation of list or set.
+
+#### Type Parameters
+
+• **T** *extends* [`UnknownContent`](../type-aliases/UnknownContent.md) = [`UnknownContent`](../type-aliases/UnknownContent.md)
 
 #### Parameters
 
-• **streamID**: `string`
-
-The stream ID string.
+• **params**: [`CreateInstanceParams`](../type-aliases/CreateInstanceParams.md)\<`T`\>
 
 #### Returns
 
-[`CommitID`](../../identifiers/classes/CommitID.md)
+`Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
 
-The `CommitID` for the stream.
+***
+
+### createSingleton()
+
+> **createSingleton**(`params`): `Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
+
+Creates an instance of a model with account relation single.
+By definition this instance will always be a singleton.
+
+#### Parameters
+
+• **params**: [`CreateSingletonParams`](../type-aliases/CreateSingletonParams.md)
+
+#### Returns
+
+`Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
 
 ***
 
@@ -238,61 +255,6 @@ A promise that resolves to the `CommitID` of the posted event.
 
 The data event updates the content of a stream and is associated with the
 current state of the stream.
-
-***
-
-### postDeterministicInit()
-
-> **postDeterministicInit**(`params`): `Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
-
-Posts a deterministic initialization event and returns its commit ID.
-
-#### Parameters
-
-• **params**: [`PostDeterministicInitParams`](../type-aliases/PostDeterministicInitParams.md)
-
-Parameters for posting the deterministic init event.
-
-#### Returns
-
-`Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
-
-A promise that resolves to the `CommitID` of the posted event.
-
-#### Remarks
-
-This method ensures that the resulting stream ID is deterministic, derived
-from the `uniqueValue` parameter. Commonly used for model instance documents
-of type `set` and `single`.
-
-***
-
-### postSignedInit()
-
-> **postSignedInit**\<`T`\>(`params`): `Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
-
-Posts a signed initialization event and returns its commit ID.
-
-#### Type Parameters
-
-• **T** *extends* [`UnknownContent`](../type-aliases/UnknownContent.md) = [`UnknownContent`](../type-aliases/UnknownContent.md)
-
-#### Parameters
-
-• **params**: [`PostSignedInitParams`](../type-aliases/PostSignedInitParams.md)\<`T`\>
-
-Parameters for posting the signed init event.
-
-#### Returns
-
-`Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
-
-A promise that resolves to the `CommitID` of the posted event.
-
-#### Remarks
-
-This method results in a non-deterministic stream ID, typically used for
-model instance documents of type `list`.
 
 ***
 

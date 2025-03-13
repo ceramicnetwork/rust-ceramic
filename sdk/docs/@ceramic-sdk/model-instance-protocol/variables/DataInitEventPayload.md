@@ -34,6 +34,10 @@ Init event payload for a non-deterministic ModelInstanceDocument Stream
 
 > **model**: `Type`\<[`StreamID`](../../identifiers/classes/StreamID.md), `Uint8Array`, [`StreamID`](../../identifiers/classes/StreamID.md) \| `Uint8Array`\> = `streamIDAsBytes`
 
+##### modelVersion
+
+> **modelVersion**: `OptionalCodec`\<`Type`\<`CID`\<`unknown`, `number`, `number`, `Version`\>, `CID`\<`unknown`, `number`, `number`, `Version`\>, `unknown`\>\>
+
 ##### sep
 
 > **sep**: `LiteralCodec`\<`"model"`\>

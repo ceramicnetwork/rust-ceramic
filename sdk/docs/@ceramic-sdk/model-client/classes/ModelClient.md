@@ -9,7 +9,7 @@
 Represents a client for interacting with Ceramic models.
 
 The `ModelClient` class extends the `StreamClient` class to provide additional
-methods specific to working with Ceramic models, including fetching and posting
+methods specific to working with Ceramic models, including fetching and creating
 model definitions, retrieving initialization events, and decoding stream data.
 
 ## Extends
@@ -61,6 +61,34 @@ The `CeramicClient` instance associated with this StreamClient.
 #### Defined in
 
 ## Methods
+
+### createDefinition()
+
+> **createDefinition**(`definition`, `signer`?): `Promise`\<[`StreamID`](../../identifiers/classes/StreamID.md)\>
+
+Creates a model definition and returns the resulting stream ID.
+
+#### Parameters
+
+• **definition**: `MapIn`\<`RequiredProps`\<`object`\>, `$TypeOf`\> & `MapIn`\<`OptionalProps`\<`object`\>, `$TypeOf`\> \| `MapIn`\<`RequiredProps`\<`object`\>, `$TypeOf`\> & `MapIn`\<`OptionalProps`\<`object`\>, `$TypeOf`\>
+
+The model JSON definition to post.
+
+• **signer?**: `DID`
+
+(Optional) A `DID` instance for signing the model definition.
+
+#### Returns
+
+`Promise`\<[`StreamID`](../../identifiers/classes/StreamID.md)\>
+
+A promise that resolves to the `StreamID` of the posted model.
+
+#### Throws
+
+Will throw an error if the definition is invalid or the signing process fails.
+
+***
 
 ### getDID()
 
@@ -241,26 +269,69 @@ console.log(streamState);
 
 ### postDefinition()
 
-> **postDefinition**(`definition`, `signer`?): `Promise`\<[`StreamID`](../../identifiers/classes/StreamID.md)\>
+> **postDefinition**(`params`): `Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
 
-Posts a model definition and returns the resulting stream ID.
+Posts a data event to a model stream and returns its commit ID.
 
 #### Parameters
 
-• **definition**: `MapIn`\<`RequiredProps`\<`object`\>, `$TypeOf`\> & `MapIn`\<`OptionalProps`\<`object`\>, `$TypeOf`\> \| `MapIn`\<`RequiredProps`\<`object`\>, `$TypeOf`\> & `MapIn`\<`OptionalProps`\<`object`\>, `$TypeOf`\>
+• **params**: [`PostDefinitionParams`](../type-aliases/PostDefinitionParams.md)
 
-The model JSON definition to post.
-
-• **signer?**: `DID`
-
-(Optional) A `DID` instance for signing the model definition.
+Parameters for posting the data event.
 
 #### Returns
 
-`Promise`\<[`StreamID`](../../identifiers/classes/StreamID.md)\>
+`Promise`\<[`CommitID`](../../identifiers/classes/CommitID.md)\>
 
-A promise that resolves to the `StreamID` of the posted model.
+A promise that resolves to the `CommitID` of the posted event.
 
-#### Throws
+#### Remarks
 
-Will throw an error if the definition is invalid or the signing process fails.
+The data event updates the content of a stream and is associated with the
+current state of the stream.
+
+***
+
+### streamStateToModelState()
+
+> **streamStateToModelState**(`streamState`): [`ModelState`](../type-aliases/ModelState.md)
+
+Transforms a `StreamState` into a `ModelState`.
+
+#### Parameters
+
+• **streamState**: [`StreamState`](../../stream-client/type-aliases/StreamState.md)
+
+The stream state to transform.
+
+#### Returns
+
+[`ModelState`](../type-aliases/ModelState.md)
+
+The `ModelState` derived from the stream state.
+
+***
+
+### updateDefinition()
+
+> **updateDefinition**(`params`): `Promise`\<[`ModelState`](../type-aliases/ModelState.md)\>
+
+Updates a model with a new definition and returns the updated model state.
+Model's can only be updated in backwards compatible ways.
+
+#### Parameters
+
+• **params**: [`UpdateModelDefinitionParams`](../type-aliases/UpdateModelDefinitionParams.md)
+
+Parameters for updating the document.
+
+#### Returns
+
+`Promise`\<[`ModelState`](../type-aliases/ModelState.md)\>
+
+A promise that resolves to the updated `ModelState`.
+
+#### Remarks
+
+This method posts the new content as a data event, updating the document.
+It can optionally take the current document state to avoid re-fetching it.

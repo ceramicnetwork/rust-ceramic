@@ -8,8 +8,10 @@
 
 ## Type Aliases
 
+- [JSONPatchOperation](type-aliases/JSONPatchOperation.md)
 - [ModelAccountRelation](type-aliases/ModelAccountRelation.md)
 - [ModelAccountRelationV2](type-aliases/ModelAccountRelationV2.md)
+- [ModelDataEventPayload](type-aliases/ModelDataEventPayload.md)
 - [ModelDefinition](type-aliases/ModelDefinition.md)
 - [ModelDefinitionV1](type-aliases/ModelDefinitionV1.md)
 - [ModelDefinitionV2](type-aliases/ModelDefinitionV2.md)
@@ -30,14 +32,21 @@
 - [ModelViewsDefinitionV2](type-aliases/ModelViewsDefinitionV2.md)
 - [ObjectSchema](type-aliases/ObjectSchema.md)
 - [SchemaType](type-aliases/SchemaType.md)
-- [ValidVersionSatisfies](type-aliases/ValidVersionSatisfies.md)
 
 ## Variables
 
+- [JSONPatchAddOperation](variables/JSONPatchAddOperation.md)
+- [JSONPatchCopyOperation](variables/JSONPatchCopyOperation.md)
+- [JSONPatchMoveOperation](variables/JSONPatchMoveOperation.md)
+- [JSONPatchOperation](variables/JSONPatchOperation.md)
+- [JSONPatchRemoveOperation](variables/JSONPatchRemoveOperation.md)
+- [JSONPatchReplaceOperation](variables/JSONPatchReplaceOperation.md)
+- [JSONPatchTestOperation](variables/JSONPatchTestOperation.md)
 - [MODEL](variables/MODEL.md)
 - [MODEL\_STREAM\_ID](variables/MODEL_STREAM_ID.md)
 - [ModelAccountRelation](variables/ModelAccountRelation.md)
 - [ModelAccountRelationV2](variables/ModelAccountRelationV2.md)
+- [ModelDataEventPayload](variables/ModelDataEventPayload.md)
 - [ModelDefinition](variables/ModelDefinition.md)
 - [ModelDefinitionV1](variables/ModelDefinitionV1.md)
 - [ModelDefinitionV2](variables/ModelDefinitionV2.md)
@@ -61,5 +70,4 @@
 
 ## Functions
 
-- [assertValidModelContent](functions/assertValidModelContent.md)
 - [getModelStreamID](functions/getModelStreamID.md)

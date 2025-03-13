@@ -37,7 +37,6 @@
 - [JSONPatchRemoveOperation](variables/JSONPatchRemoveOperation.md)
 - [JSONPatchReplaceOperation](variables/JSONPatchReplaceOperation.md)
 - [JSONPatchTestOperation](variables/JSONPatchTestOperation.md)
-- [MAX\_DOCUMENT\_SIZE](variables/MAX_DOCUMENT_SIZE.md)
 
 ## Functions
 

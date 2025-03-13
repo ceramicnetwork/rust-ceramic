@@ -2,13 +2,13 @@
 
 ***
 
-[Ceramic SDK](../../../README.md) / [@ceramic-sdk/model-instance-client](../README.md) / PostDeterministicInitParams
+[Ceramic SDK](../../../README.md) / [@ceramic-sdk/model-instance-client](../README.md) / CreateSingletonParams
 
-# Type Alias: PostDeterministicInitParams
+# Type Alias: CreateSingletonParams
 
-> **PostDeterministicInitParams**: `object`
+> **CreateSingletonParams**: `object`
 
-Parameters for posting a deterministic initialization event.
+Parameters for creating a singleton instance of a model.
 
 ## Type declaration
 
