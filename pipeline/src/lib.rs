@@ -191,6 +191,7 @@ pub async fn spawn_actors<F: ConclusionFeed + 'static>(
         100,
         &pipeline_ctx,
         config.conclusion_feed,
+        config.batch_size.clone(),
         config.metrics.clone(),
         config.shutdown.clone(),
     )
@@ -201,7 +202,7 @@ pub async fn spawn_actors<F: ConclusionFeed + 'static>(
         let (aggregator, mut tasks) = Aggregator::spawn_new(
             1_000,
             &pipeline_ctx,
-            None,
+            config.batch_size,
             concluder.clone(),
             config.metrics.clone(),
             config.shutdown.clone(),

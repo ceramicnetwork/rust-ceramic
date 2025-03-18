@@ -13,6 +13,8 @@ pub struct Config<F> {
     pub conclusion_feed: ConclusionFeedSource<F>,
     /// Access to an object store.
     pub object_store: Arc<dyn ObjectStore>,
+    /// Batch size to use for all actors
+    pub batch_size: Option<usize>,
     /// Metrics object for recording statistics about pipeline actors.
     pub metrics: Metrics,
     /// A shutdown signal channel.

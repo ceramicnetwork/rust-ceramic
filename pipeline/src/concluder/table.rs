@@ -70,9 +70,12 @@ impl<T> ConclusionFeedTable<T> {
             batch_size: DEFAULT_BATCH_SIZE,
         }
     }
-    #[cfg(test)]
-    fn with_batch_size(self, batch_size: i64) -> Self {
-        Self { batch_size, ..self }
+    pub fn with_batch_size(self, batch_size: Option<i64>) -> Self {
+        if let Some(batch_size) = batch_size {
+            Self { batch_size, ..self }
+        } else {
+            self
+        }
     }
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
@@ -296,7 +299,7 @@ mod tests {
             .once()
             .with(predicate::eq(6), predicate::eq(BATCH_SIZE))
             .return_once(|_, _| Ok(events(7, BATCH_SIZE - 1)));
-        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(Some(BATCH_SIZE));
         let ctx = SessionContext::new();
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
@@ -339,7 +342,7 @@ mod tests {
             .once()
             .with(predicate::eq(3), predicate::eq(LIMIT as i64 - BATCH_SIZE))
             .return_once(|_, _| Ok(events(4, LIMIT as i64 - BATCH_SIZE)));
-        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(Some(BATCH_SIZE));
         let ctx = SessionContext::new();
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
@@ -375,7 +378,7 @@ mod tests {
             .once()
             .with(predicate::eq(0), predicate::eq(LIMIT as i64))
             .return_once(|_, _| Ok(events(1, LIMIT as i64)));
-        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(Some(BATCH_SIZE));
         let ctx = SessionContext::new();
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))
@@ -408,7 +411,7 @@ mod tests {
             .once()
             .with(predicate::eq(0), predicate::eq(BATCH_SIZE))
             .return_once(|_, _| Ok(events(1, BATCH_SIZE)));
-        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(BATCH_SIZE);
+        let table = ConclusionFeedTable::new(Arc::new(mock_feed)).with_batch_size(Some(BATCH_SIZE));
         let ctx = SessionContext::new();
         let data = pretty_format_batches(
             &ctx.read_table(Arc::new(table))

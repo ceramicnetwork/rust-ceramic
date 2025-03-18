@@ -190,3 +190,27 @@ pub fn pending_event_states() -> SchemaRef {
         )
     }))
 }
+
+/// The `pending_event_states` table contains the intermmediate events for mids where their model
+/// event is not yet processed.
+/// This schema includes the partition columns of the table.
+pub fn pending_event_states_partitioned() -> SchemaRef {
+    Arc::clone(PENDING_EVENT_STATES.get_or_init(|| {
+        Arc::new(
+            arrow_schema::SchemaBuilder::from(&arrow_schema::Fields::from(
+                // Append partition fields to the end of the unpartitioned schema
+                event_states()
+                    .fields()
+                    .into_iter()
+                    .cloned()
+                    .chain(vec![Arc::new(arrow_schema::Field::new(
+                        "model_version_partition",
+                        DataType::Int32,
+                        false,
+                    ))])
+                    .collect::<Vec<_>>(),
+            ))
+            .finish(),
+        )
+    }))
+}

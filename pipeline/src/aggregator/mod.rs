@@ -92,10 +92,10 @@ const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_pers
 // columns change). The revision is a physical versioning number and not directly associated with
 // the logical schema version of the table. There are many cases where the physical revision may
 // need to change while the logical version remains the same.
-const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev2/event_states/";
+const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev3/event_states/";
 
 const PENDING_EVENT_STATES_TABLE: &str = "ceramic._internal.pending_event_states";
-const PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev0/pending_event_states/";
+const PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev1/pending_event_states/";
 
 // Maximum number of rows to cache in memory before writing to object store.
 const DEFAULT_MAX_CACHED_ROWS: usize = 10_000;
@@ -173,8 +173,13 @@ impl Aggregator {
 
         // Register event_states tables
         let file_format = ParquetFormat::default().with_enable_pruning(true);
-        let listing_options =
-            ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
+        let listing_options = ListingOptions::new(Arc::new(file_format))
+            .with_file_extension(".parquet")
+            //.with_table_partition_cols(vec![(
+            //    "model_version_partition".to_owned(),
+            //    DataType::Int32,
+            //)])
+            ;
 
         // Set the path within the bucket for the event_states table
         let mut pending_event_states_url = ctx.object_store_url.clone();
@@ -380,6 +385,21 @@ impl Aggregator {
             .await?;
 
         let stats = pending_mids
+            //.select(vec![
+            //    col("conclusion_event_order"),
+            //    col("stream_cid"),
+            //    col("stream_type"),
+            //    col("controller"),
+            //    col("dimensions"),
+            //    col("event_cid"),
+            //    col("event_type"),
+            //    col("event_height"),
+            //    col("data"),
+            //    col("patch"),
+            //    col("model_version"),
+            //    cid_part(col("model_version")).alias("model_version_partition"),
+            //])
+            //.context("computing model_version_partition")?
             .write_table(PENDING_EVENT_STATES_TABLE, DataFrameWriteOptions::new())
             .await
             .context("writing pending events")?;
@@ -485,34 +505,40 @@ impl Aggregator {
             .table(PENDING_EVENT_STATES_TABLE)
             .await
             .context("read pending events")?
+            .join_on(
+                self.ctx.read_batches(models)?.select(vec![
+                    col("event_cid").alias("model_cid"),
+                    //cid_part(col("event_cid")).alias("mvp"),
+                    col("data").alias("model_definition"),
+                ])?,
+                JoinType::Left,
+                [
+                    //col("model_version_partition").eq(col("mvp")),
+                    col("model_version").eq(col("model_cid")),
+                ],
+            )?
             // Make sure we have a single row per event in case our hack below fails to delete old
             // data.
-            .distinct_on(
-                vec![col("event_cid")],
-                vec![
-                    col("conclusion_event_order"),
-                    col("stream_cid"),
-                    col("stream_type"),
-                    col("controller"),
-                    col("dimensions"),
-                    col("event_cid"),
-                    col("event_type"),
-                    col("event_height"),
-                    col("data"),
-                    col("patch"),
-                    col("model_version"),
-                ],
-                None,
-            )?
-            .join_on(
-                self.ctx
-                    .read_batches(models)?
-                    .select_columns(&["event_cid", "data"])?
-                    .with_column_renamed("event_cid", "model_cid")?
-                    .with_column_renamed("data", "model_definition")?,
-                JoinType::Left,
-                [col("model_version").eq(col("model_cid"))],
-            )?
+            // Do this operation after the join so the join can remain efficient based on
+            // partitions.
+            //.distinct_on(
+            //    vec![col("event_cid")],
+            //    vec![
+            //        col("conclusion_event_order"),
+            //        col("stream_cid"),
+            //        col("stream_type"),
+            //        col("controller"),
+            //        col("dimensions"),
+            //        col("event_cid"),
+            //        col("event_type"),
+            //        col("event_height"),
+            //        col("data"),
+            //        col("patch"),
+            //        col("model_version"),
+            //        col("model_definition"),
+            //    ],
+            //    None,
+            //)
             .select_columns(&[
                 "conclusion_event_order",
                 "stream_cid",

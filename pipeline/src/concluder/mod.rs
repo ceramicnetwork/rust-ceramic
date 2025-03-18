@@ -62,6 +62,7 @@ impl Concluder {
         size: usize,
         ctx: &PipelineContext,
         feed: ConclusionFeedSource<F>,
+        batch_size: Option<usize>,
         metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(ConcluderHandle, Vec<JoinHandle<()>>)> {
@@ -74,6 +75,7 @@ impl Concluder {
                 broadcast_tx,
             },
             feed,
+            batch_size,
             metrics,
             shutdown,
         )
@@ -85,6 +87,7 @@ impl Concluder {
         ctx: &PipelineContext,
         concluder: impl ConcluderActor,
         feed: ConclusionFeedSource<F>,
+        batch_size: Option<usize>,
         metrics: Metrics,
         shutdown: Shutdown,
     ) -> Result<(ConcluderHandle, Vec<JoinHandle<()>>)> {
@@ -95,7 +98,10 @@ impl Concluder {
             ConclusionFeedSource::Direct(conclusion_feed) => {
                 ctx.session().register_table(
                     CONCLUSION_EVENTS_TABLE,
-                    Arc::new(ConclusionFeedTable::new(conclusion_feed.clone())),
+                    Arc::new(
+                        ConclusionFeedTable::new(conclusion_feed.clone())
+                            .with_batch_size(batch_size.map(|s| s as i64)),
+                    ),
                 )?;
                 conclusion_feed.max_highwater_mark().await?
             }
@@ -374,6 +380,7 @@ mod tests {
             1_000,
             &pipeline_ctx,
             ConclusionFeedSource::Direct(Arc::new(feed)),
+            None,
             metrics,
             shutdown.clone(),
         )

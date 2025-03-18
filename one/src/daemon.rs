@@ -266,14 +266,19 @@ pub struct DaemonOpts {
     ///   * AWS_ENDPOINT -> endpoint
     ///   * AWS_SESSION_TOKEN -> token
     ///   * AWS_ALLOW_HTTP -> set to "true" to permit HTTP connections without TLS
-    ///
-    /// Requires using the experimental-features flag
     #[arg(
         long,
         env = "CERAMIC_ONE_OBJECT_STORE_URL",
         default_value = "file://./pipeline"
     )]
     object_store_url: url::Url,
+
+    /// Number of rows to process in a single batch of the pipeline.
+    ///
+    /// A smaller number means less memory is required but also less efficient.
+    /// Its recommended to use 10_000 unless you are experiencing issues at that size.
+    #[arg(long, env = "CERAMIC_ONE_PIPELINE_BATCH_SIZE")]
+    pipeline_batch_size: Option<usize>,
 }
 
 async fn get_eth_rpc_providers(
@@ -616,6 +621,7 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         aggregator: true,
         conclusion_feed: feed.into(),
         object_store,
+        batch_size: opts.pipeline_batch_size,
         metrics: pipeline_metrics,
         shutdown: shutdown.clone(),
     })
