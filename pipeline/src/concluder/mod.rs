@@ -169,7 +169,6 @@ actor_envelope! {
     ConcluderRecorder,
     NewEvents => NewEventsMsg,
     SubscribeSince => SubscribeSinceMsg,
-    EventsSince => EventsSinceMsg,
 }
 
 /// Notify actor of new events
@@ -327,23 +326,6 @@ async fn events_since(
     }
 
     Ok(conclusion_events.execute_stream().await?)
-}
-
-/// Request the events since a highwater mark
-#[derive(Debug)]
-pub struct EventsSinceMsg {
-    /// Optional filters to apply to the query
-    pub filters: Vec<Expr>,
-}
-impl Message for EventsSinceMsg {
-    type Result = anyhow::Result<SendableRecordBatchStream>;
-}
-
-#[async_trait]
-impl Handler<EventsSinceMsg> for Concluder {
-    async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, Some(message.filters), None).await
-    }
 }
 
 #[async_trait]
