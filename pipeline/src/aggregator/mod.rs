@@ -369,8 +369,7 @@ impl Aggregator {
         //  3. Delete previously existing files.
         //
         //  If we fail in between any of these steps we will end up with duplicate rows, but not
-        //  missing rows. The logic above can handles the duplicate rows explicitly.
-        //  Additionally a successful pass after a failure will remove all duplicates.
+        //  missing rows. Additionally a successful pass after a failure will remove all duplicates.
 
         let existing_files = self
             .object_store
@@ -384,10 +383,26 @@ impl Aggregator {
             .await
             .context("writing pending events")?;
 
-        self.object_store
-            .delete_stream(tokio_stream::iter(existing_files).map(Ok).boxed())
-            .try_collect::<Vec<_>>()
-            .await?;
+        let mut retries = 3;
+        loop {
+            let result = self
+                .object_store
+                .delete_stream(tokio_stream::iter(existing_files.clone()).map(Ok).boxed())
+                .try_collect::<Vec<_>>()
+                .await;
+            if let Err(err) = result {
+                if retries == 0 {
+                    error!(
+                        %err,
+                        "failed to delete pending event files, this will result in duplicate pending events which may remain in pending state forever. To remove them an operator can delete all event_states and pending_event_states files from object store, on restart the process will rebuild all event_state data."
+                    );
+                    return Err(err.into());
+                }
+                retries -= 1;
+            } else {
+                break;
+            }
+        }
 
         let total_pending_events = stats
             .first()
@@ -485,25 +500,6 @@ impl Aggregator {
             .table(PENDING_EVENT_STATES_TABLE)
             .await
             .context("read pending events")?
-            // Make sure we have a single row per event in case our hack below fails to delete old
-            // data.
-            .distinct_on(
-                vec![col("event_cid")],
-                vec![
-                    col("conclusion_event_order"),
-                    col("stream_cid"),
-                    col("stream_type"),
-                    col("controller"),
-                    col("dimensions"),
-                    col("event_cid"),
-                    col("event_type"),
-                    col("event_height"),
-                    col("data"),
-                    col("patch"),
-                    col("model_version"),
-                ],
-                None,
-            )?
             .join_on(
                 self.ctx
                     .read_batches(models)?
