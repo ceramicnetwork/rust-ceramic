@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.54.0] - 2025-03-19
+
+### 🚀 Features
+
+- Add some validation logic to migration from-ipfs ([#685](https://github.com/ceramicnetwork/rust-ceramic/issues/685))
+
+### 🐛 Bug Fixes
+
+- Make sdk use correct id in data event payloads ([#673](https://github.com/ceramicnetwork/rust-ceramic/issues/673))
+- Use new default gnosis rpc endpoint ([#683](https://github.com/ceramicnetwork/rust-ceramic/issues/683))
+- Remove distinct step as its prohibitively expensive ([#682](https://github.com/ceramicnetwork/rust-ceramic/issues/682))
+
+### ⚙️ Miscellaneous Tasks
+
+- Do not deploy to durable envs ([#670](https://github.com/ceramicnetwork/rust-ceramic/issues/670))
+- Update CODEOWNERS ([#672](https://github.com/ceramicnetwork/rust-ceramic/issues/672))
+- Autogen sdk docs, ci check they are generated ([#674](https://github.com/ceramicnetwork/rust-ceramic/issues/674))
+- Use different gnosis rpc url ([#684](https://github.com/ceramicnetwork/rust-ceramic/issues/684))
+
 ## [0.53.0] - 2025-03-10
 
 ### 🚀 Features
@@ -11,6 +30,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Migrates ceramic-tests to this repo ([#668](https://github.com/ceramicnetwork/rust-ceramic/issues/668))
+- Version v0.53.0 ([#671](https://github.com/ceramicnetwork/rust-ceramic/issues/671))
 
 ## [0.52.0] - 2025-02-24
 
