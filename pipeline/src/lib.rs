@@ -14,6 +14,7 @@ mod cache_table;
 pub mod cid_part;
 pub mod cid_string;
 pub mod concluder;
+pub mod resolver;
 mod config;
 pub mod dimension_extract;
 mod metrics;
