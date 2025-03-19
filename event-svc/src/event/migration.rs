@@ -447,7 +447,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                         let chain_id = event.proof().chain_id().to_owned();
                         if !supported_chains.contains(&chain_id) {
                             return Err(anyhow!("event has unsupported chain: {chain_id}"))
-                                .with_model_context(&model);
+                                .with_model_context(model);
                         }
                     }
                 }
@@ -462,7 +462,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                                 },
                             )
                             .await
-                            .with_model_context(&model)?;
+                            .with_model_context(model)?;
                     }
                 }
                 unvalidated::Event::Unsigned(_) => {}
@@ -471,7 +471,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 event_builder
                     .build(&self.network, event)
                     .await
-                    .with_model_context(&model)?,
+                    .with_model_context(model)?,
             );
         }
         Ok(())
