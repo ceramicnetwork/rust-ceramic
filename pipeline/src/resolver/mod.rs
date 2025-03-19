@@ -189,6 +189,24 @@ impl Resolver {
                 .into_view(),
         )?;
 
+        // TODO: This is a bit over simplified.
+        //
+        // Here we assume that the stream_tips and stream_states tables remain in lock step (i.e.
+        // we can atomically write to both)
+        //
+        // However that is not a safe assumption.
+        //
+        // I see two ways to solve this:
+        //
+        // 1. Use two different actors, a tips actor and a resolver actor.
+        //    Then have the resolver actor subscribe the tips actor and use the stream_tip_order to
+        //    ensure it makes forward progress atomically.
+        //
+        // 2. Keep this single actor but track the stream_tip_order and stream_state order
+        //    separately so that we get the same atomicity with the complexity of two actors.
+        //
+        // In short one complicated actor or two simpler actors.
+
         // Query for max event_state_order and stream_state_order in persistent stream_states, this is where we should start
         // the new order values.
         let batches = ctx
