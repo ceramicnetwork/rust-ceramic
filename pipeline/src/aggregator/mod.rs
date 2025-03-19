@@ -870,6 +870,8 @@ actor_envelope! {
     AggregatorRecorder,
     SubscribeSince => SubscribeSinceMsg,
     NewConclusionEvents => NewConclusionEventsMsg,
+    // TODO: Remove this message and use the analogous message on the Resolver.
+    // This way the canonical stream state is provided via the API
     StreamState => StreamStateMsg,
 }
 
@@ -903,13 +905,6 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
         // Execute query to get initial (historical) results
         let query_stream = df.execute_stream().await?;
 
-        // Create subscription stream
-        let subscription_stream = RecordBatchStreamAdapter::new(
-            schemas::event_states(),
-            tokio_stream::wrappers::BroadcastStream::new(subscription)
-                .map_err(|err| exec_datafusion_err!("{err}")),
-        );
-
         // Merge query results with subscription updates
         rows_since(RowsSinceInput {
             session_context: &ctx,
@@ -918,7 +913,11 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
             projection: message.projection,
             filters: message.filters,
             limit: message.limit,
-            subscription: Box::pin(subscription_stream),
+            subscription: Box::pin(RecordBatchStreamAdapter::new(
+                schemas::event_states(),
+                tokio_stream::wrappers::BroadcastStream::new(subscription)
+                    .map_err(|err| exec_datafusion_err!("{err}")),
+            )),
             since: query_stream,
         })
     }
