@@ -127,8 +127,8 @@ impl Network {
                 anyhow::bail!("no Ethereum RPC URLs specified for Mainnet")
             }
             Network::TestnetClay => {
-                info!("no Ethereum RPC URLs specified for Clay Testnet, defaulting to https://rpc.gnosis.gateway.fm/");
-                Ok(vec!["https://rpc.gnosis.gateway.fm/".to_string()])
+                info!("no Ethereum RPC URLs specified for Clay Testnet, defaulting to https://gnosis-mainnet.public.blastapi.io");
+                Ok(vec!["https://gnosis-mainnet.public.blastapi.io".to_string()])
             }
             Network::DevUnstable => {
                 info!("no Ethereum RPC URLs specified for dev-unstable network, defaulting to https://ethereum-sepolia-rpc.publicnode.com");
