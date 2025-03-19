@@ -6,6 +6,7 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use ceramic_core::{EventId, Network, StreamId};
 use ceramic_event::unvalidated::{self, signed::cacao::Capability};
+use ceramic_validation::{event_verifier::Verifier, AtTime, VerifyJwsOpts};
 use cid::Cid;
 use futures::TryStreamExt;
 use ipld_core::ipld::Ipld;
@@ -26,6 +27,10 @@ pub struct Migrator<'a, S> {
     blocks: S,
     batch: Vec<ReconItem<EventId>>,
     log_tile_docs: bool,
+    // set of sep values to import, if an event doesn't have these values it will be skipped.
+    sep_filter: Vec<Vec<u8>>,
+    validate_signatures: bool,
+    supported_chains: Option<Vec<String>>,
 
     // All unsigned init payloads we have found.
     unsigned_init_payloads: BTreeSet<Cid>,
@@ -48,12 +53,18 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         network: Network,
         blocks: S,
         log_tile_docs: bool,
+        sep_filter: Vec<Vec<u8>>,
+        validate_signatures: bool,
+        supported_chains: Option<Vec<String>>,
     ) -> Result<Self> {
         Ok(Self {
             network,
             service,
             blocks,
             log_tile_docs,
+            sep_filter,
+            validate_signatures,
+            supported_chains,
             batch: Default::default(),
             unsigned_init_payloads: Default::default(),
             referenced_unsigned_init_payloads: Default::default(),
@@ -71,7 +82,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             Err(Error::MissingBlock(*cid))
         }
     }
-    fn handle_error(&mut self, cid: Cid, err: &Error) {
+    fn handle_error(&mut self, cid: Cid, err: &Error, model_context: ModelContext) {
         let log = match err {
             Error::FoundInitTileDoc(_) | Error::FoundDataTileDoc(_) => {
                 self.tile_doc_count += 1;
@@ -86,12 +97,12 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                     .entry(model.to_owned())
                     .and_modify(|count| *count += 1)
                     .or_insert(1);
-                self.handle_error(cid, err);
+                self.handle_error(cid, err, model.clone());
                 false
             }
         };
         if log {
-            error!(%cid, err=format!("{err:#}"), "error processing block");
+            error!(%cid, err=format!("{err:#}"), model=%model_context, "error processing block");
         }
     }
 
@@ -105,7 +116,7 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         while let Some((cid, data)) = all_blocks.try_next().await? {
             let ret = self.process_block(cid, &data).await;
             if let Err(err) = ret {
-                self.handle_error(cid, &err)
+                self.handle_error(cid, &err, ModelContext(None))
             }
             if self.batch.len() > 1000 {
                 if let Err(err) = self.write_batch().await {
@@ -208,12 +219,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             );
             let event = unvalidated::init::Event::new(payload);
             let event: unvalidated::Event<Ipld> = unvalidated::Event::from(Box::new(event));
-            self.batch.push(
-                event_builder
-                    .build(&self.network, event)
-                    .await
-                    .with_model_context(&model)?,
-            );
+            self.validate_build_and_push(event_builder, event, &model)
+                .await?;
             if self.batch.len() > 1000 {
                 self.write_batch().await?
             }
@@ -296,13 +303,8 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         }
         let s = unvalidated::signed::Event::new(cid, event, link, payload, capability);
         let event = unvalidated::Event::from(s);
-        self.batch.push(
-            event_builder
-                .build(&self.network, event)
-                .await
-                .with_model_context(&model)?,
-        );
-        Ok(())
+        self.validate_build_and_push(event_builder, event, &model)
+            .await
     }
     fn is_tile_doc_init(&self, data: &[u8]) -> bool {
         // Attempt to decode the payload as a loose TileDocument.
@@ -427,12 +429,51 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         }
         let time = unvalidated::TimeEvent::new(event, proof, proof_edges);
         let event: unvalidated::Event<Ipld> = unvalidated::Event::from(Box::new(time));
-        self.batch.push(
-            event_builder
-                .build(&self.network, event)
-                .await
-                .with_model_context(&model)?,
-        );
+        self.validate_build_and_push(event_builder, event, &model)
+            .await
+    }
+
+    // Build the event and push onto the batch if its is valid.
+    async fn validate_build_and_push(
+        &mut self,
+        event_builder: EventBuilder,
+        event: unvalidated::Event<Ipld>,
+        model: &ModelContext,
+    ) -> Result<()> {
+        if self.sep_filter.is_empty() || self.sep_filter.contains(&event_builder.sep) {
+            match &event {
+                unvalidated::Event::Time(event) => {
+                    if let Some(supported_chains) = &self.supported_chains {
+                        let chain_id = event.proof().chain_id().to_owned();
+                        if !supported_chains.contains(&chain_id) {
+                            return Err(anyhow!("event has unsupported chain: {chain_id}"))
+                                .with_model_context(model);
+                        }
+                    }
+                }
+                unvalidated::Event::Signed(event) => {
+                    if self.validate_signatures {
+                        event
+                            .verify_signature(
+                                Some(&event_builder.controller),
+                                &VerifyJwsOpts {
+                                    at_time: AtTime::SkipTimeChecks,
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                            .with_model_context(model)?;
+                    }
+                }
+                unvalidated::Event::Unsigned(_) => {}
+            };
+            self.batch.push(
+                event_builder
+                    .build(&self.network, event)
+                    .await
+                    .with_model_context(model)?,
+            );
+        }
         Ok(())
     }
 }
