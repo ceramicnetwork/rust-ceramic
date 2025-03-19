@@ -396,6 +396,11 @@ impl EventService {
                     init,
                     previous: vec![*time_event.prev()],
                     order: delivered as u64,
+                    before: todo!(),
+                    chain_id: todo!(),
+                    tx_hash: todo!(),
+                    tx_type: todo!(),
+                    root: todo!(),
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {

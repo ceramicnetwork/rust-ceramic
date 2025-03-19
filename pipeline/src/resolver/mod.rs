@@ -35,7 +35,7 @@ use datafusion::{
     functions_aggregate::expr_fn::last_value,
     logical_expr::{col, lit, ExprFunctionExt as _},
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{wildcard, SessionContext},
+    prelude::{wildcard, Expr, SessionContext},
 };
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
@@ -47,7 +47,7 @@ use crate::{
     cache_table::CacheTable,
     metrics::Metrics,
     schemas,
-    since::{rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource, RowsSinceInput},
     PipelineContext, Result, SessionContextRef,
 };
 // Use the SubscribeSinceMsg so its clear its a message for this actor
@@ -310,7 +310,7 @@ async fn aggregator_subscription(
     let mut rx = aggregator
         .send(SubscribeSinceMsg {
             projection: None,
-            offset,
+            filters: offset.map(|o| vec![gt_expression("event_state_order", o)]),
             limit: None,
         })
         .await??;
@@ -354,40 +354,42 @@ impl Handler<SubscribeSinceMsg> for Resolver {
     ) -> <SubscribeSinceMsg as Message>::Result {
         let subscription = self.broadcast_tx.subscribe();
         let ctx = self.ctx.clone();
-        rows_since(
-            schemas::stream_states(),
-            "stream_state_order",
-            message.projection,
-            message.offset,
-            message.limit,
-            Box::pin(RecordBatchStreamAdapter::new(
+        rows_since(RowsSinceInput {
+            session_context: &ctx,
+            schema: schemas::stream_states(),
+            order_col: "stream_state_order",
+            projection: message.projection,
+            filters: message.filters.clone(),
+            limit: message.limit,
+            subscription: Box::pin(RecordBatchStreamAdapter::new(
                 schemas::stream_states(),
                 tokio_stream::wrappers::BroadcastStream::new(subscription)
                     .map_err(|err| exec_datafusion_err!("{err}")),
             )),
             // Future Optimization can be to send the projection and limit into the events_since call.
-            stream_states_since(&ctx, message.offset).await?,
-        )
+            since: stream_states_since(&ctx, message.filters).await?,
+        })
     }
 }
 
 async fn stream_states_since(
     ctx: &SessionContext,
-    offset: Option<u64>,
+    filters: Option<Vec<Expr>>,
 ) -> Result<SendableRecordBatchStream> {
     let mut stream_states = ctx
         .table(STREAM_STATES_TABLE)
         .await?
         .select(vec![wildcard()])?
         // Do not return the partition columns
-        .drop_columns(&["stream_cid_partition"])?;
-    if let Some(offset) = offset {
-        stream_states = stream_states.filter(col("stream_state_order").gt(lit(offset)))?;
+        .drop_columns(&["stream_cid_partition"])?
+        .sort(vec![col("stream_state_order").sort(true, true)])?;
+
+    if let Some(filters) = filters {
+        for filter in filters {
+            stream_states = stream_states.filter(filter)?;
+        }
     }
-    Ok(stream_states
-        .sort(vec![col("stream_state_order").sort(true, true)])?
-        .execute_stream()
-        .await?)
+    Ok(stream_states.execute_stream().await?)
 }
 
 /// Inform the resolver about new event states.
@@ -581,13 +583,13 @@ impl FeedTableSource for ResolverHandle {
     async fn subscribe_since(
         &self,
         projection: Option<Vec<usize>>,
-        offset: Option<u64>,
+        filters: Option<Vec<Expr>>,
         limit: Option<usize>,
     ) -> anyhow::Result<SendableRecordBatchStream> {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                offset,
+                filters,
                 limit,
             })
             .await??)
