@@ -85,7 +85,7 @@ impl ModelInstanceValidate {
             .model_instance
             .is_valid(i)
             .then(|| serde_json::from_slice::<ModelInstance>(columns.model_instance.value(i)))
-            .ok_or_validation_internal_err("cannot validate null instance document"))
+            .ok_or_validation_failure("cannot validate null instance document"))
         .context("instance payload not a valid json documnet")
         .map_to_validation_failure());
         let patch = maybe_fail!(columns
@@ -96,16 +96,16 @@ impl ModelInstanceValidate {
             .context("instance patch is not a valid json patch document")
             // This is an error because to get to this point we know that the patch has already
             // been applied.
-            .map_to_validation_internal_err());
+            .map_to_validation_failure());
         let model_version = maybe_fail!(maybe_fail!(columns
             .model_versions
             .is_valid(i)
             .then(|| Cid::read_bytes(columns.model_versions.value(i)))
-            .ok_or_validation_internal_err(
+            .ok_or_validation_failure(
                 "cannot validate instance against an unknown model version"
             ))
         .context("model version must be a valid CID")
-        .map_to_validation_internal_err());
+        .map_to_validation_failure());
         let model_definition = maybe_fail!(maybe_fail!(columns
             .model_definitions
             .is_valid(i)
@@ -123,7 +123,7 @@ impl ModelInstanceValidate {
             .event_heights
             .is_valid(i)
             .then(|| columns.event_heights.value(i))
-            .ok_or_validation_internal_err(
+            .ok_or_validation_failure(
                 "cannot validate an instance with an unknown event event_height"
             ));
 

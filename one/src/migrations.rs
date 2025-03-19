@@ -1,8 +1,9 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, str::FromStr as _, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_stream::try_stream;
 use async_trait::async_trait;
+use ceramic_core::StreamId;
 use ceramic_event::unvalidated;
 use ceramic_event_svc::{BlockStore, EventService};
 use ceramic_metrics::config::Config as MetricsConfig;
@@ -105,6 +106,21 @@ pub struct FromIpfsOpts {
     /// Number of files to process
     #[clap(long, short = 'l', env = "CERAMIC_ONE_MIGRATION_LIMIT")]
     limit: Option<u64>,
+
+    /// Optional list of model stream ids. Only events from these models will be migrated.
+    /// If the list is empty all events are migrated.
+    #[clap(long, value_delimiter = ',', env = "CERAMIC_ONE_MODEL_FILTER")]
+    model_filter: Vec<String>,
+
+    /// Whether to validate the signatures of signed events.
+    /// Events with invalid signatures will be skipped and counted as errors.
+    #[clap(long, env = "CERAMIC_ONE_VALIDATE_SIGNATURES")]
+    validate_signatures: bool,
+
+    /// Whether to validate the chain of time events.
+    /// Events with invalid chains will be skipped and counted as errors.
+    #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAINS")]
+    validate_chain: bool,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -165,7 +181,27 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
         file_limit: opts.limit,
     };
     event_svc
-        .migrate_from_ipfs(network, blocks, opts.log_tile_docs)
+        .migrate_from_ipfs(
+            network,
+            blocks,
+            opts.log_tile_docs,
+            opts.model_filter
+                .iter()
+                .map(|model| {
+                    StreamId::from_str(model)
+                        .map_err(|err| anyhow!("model filter must be valid stream id: {err}"))
+                        .map(|s| s.to_vec())
+                })
+                .collect::<Result<Vec<Vec<u8>>, _>>()?,
+            opts.validate_signatures,
+            opts.validate_chain
+                .then(|| {
+                    opts.network
+                        .supported_chain_ids()
+                        .map(|chains| chains.into_iter().map(|chain| chain.to_string()).collect())
+                })
+                .flatten(),
+        )
         .await?;
     Ok(())
 }

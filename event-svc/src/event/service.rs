@@ -201,10 +201,21 @@ impl EventService {
         network: Network,
         blocks: impl BlockStore,
         log_tile_docs: bool,
+        sep_filter: Vec<Vec<u8>>,
+        validate_signatures: bool,
+        supported_chains: Option<Vec<String>>,
     ) -> Result<()> {
-        let migrator = Migrator::new(self, network, blocks, log_tile_docs)
-            .await
-            .map_err(Error::new_fatal)?;
+        let migrator = Migrator::new(
+            self,
+            network,
+            blocks,
+            log_tile_docs,
+            sep_filter,
+            validate_signatures,
+            supported_chains,
+        )
+        .await
+        .map_err(Error::new_fatal)?;
         migrator.migrate().await.map_err(Error::new_fatal)?;
         Ok(())
     }
