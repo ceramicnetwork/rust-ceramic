@@ -56,7 +56,7 @@ async fn test_migration(cars: Vec<Vec<u8>>) {
     let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
     let service = EventService::new_with_event_validation(conn).await.unwrap();
     service
-        .migrate_from_ipfs(Network::Local(42), blocks, false)
+        .migrate_from_ipfs(Network::Local(42), blocks, false, vec![], false, None)
         .await
         .unwrap();
     let actual_events: BTreeSet<_> = ceramic_api::EventService::range_with_values(
