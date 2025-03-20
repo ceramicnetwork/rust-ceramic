@@ -54,6 +54,7 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
+        working-directory: sdk
         run: |
             echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
@@ -73,18 +74,18 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
-      - name: Setup toolchain
-        run: ${{ matrix.settings.setup }}
-        if: ${{ matrix.settings.setup }}
-        shell: bash
       - name: Install dependencies and buld
+        working-directory: sdk
         run: pnpm install --frozen-lockfile
       - name: Lint
+        working-directory: sdk
         run: pnpm run lint:ci
       - name: Build
+        working-directory: sdk
         run: ${{ matrix.settings.build }}
         shell: bash
       - name: Run unit tests
+        working-directory: sdk
         run: pnpm test:ci
         shell: bash
       - name: Upload artifact
@@ -127,6 +128,7 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
+        working-directory: sdk
         run: |
             echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
@@ -137,6 +139,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}_${{ matrix.settings.target }}-pnpm-store-
       - name: Install dependencies
+        working-directory: sdk
         run: pnpm install --frozen-lockfile
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -176,6 +179,7 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
+        working-directory: sdk
         run: |
             echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
@@ -186,7 +190,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}_x86_64-unknown-linux-gnu-pnpm-store-
       - name: Install dependencies
+        working-directory: sdk
         run: pnpm install --frozen-lockfile
+        working-directory: sdk
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

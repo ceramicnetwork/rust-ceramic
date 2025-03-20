@@ -52,6 +52,7 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
+        working-directory: sdk
         run: |
             echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
@@ -71,13 +72,11 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
-      - name: Setup toolchain
-        run: ${{ matrix.settings.setup }}
-        if: ${{ matrix.settings.setup }}
-        shell: bash
       - name: Install dependencies and buld
+        working-directory: sdk
         run: pnpm install --frozen-lockfile
       - name: Build
+        working-directory: sdk
         run: ${{ matrix.settings.build }}
         shell: bash
       - name: Upload artifact
@@ -106,6 +105,7 @@ jobs:
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
+        working-directory: sdk
         run: |
             echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
@@ -116,26 +116,27 @@ jobs:
           restore-keys: |
             ${{ runner.os }}_publish-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
         working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: pnpm install --frozen-lockfile
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: ${{ env.FLIGHT_SQL_PATH }}/artifacts
       - name: Move artifacts
-        run: pnpm artifacts
         working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: pnpm artifacts
       - name: List packages
+        working-directory: ${{ env.FLIGHT_SQL_PATH }}
         run: ls -R ./npm
         shell: bash
-        working-directory: ${{ env.FLIGHT_SQL_PATH }}
       - name: Publish
+        working-directory: sdk
         run: |
           COMMIT_MESSAGE=$(git log -1 --pretty=%B)
           if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore(sdk): version v') ]]; then
             npm config set provenance true
             echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            for p in $(pwd)/sdk/packages/*
+            for p in $(pwd)/packages/*
             do
               cd $p
               npm publish --access public
