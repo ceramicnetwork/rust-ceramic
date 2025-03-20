@@ -1,9 +1,12 @@
 {
   "name": "@ceramic-sdk/identifiers",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
-  "keywords": ["ceramic", "identifiers"],
+  "keywords": [
+    "ceramic",
+    "identifiers"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ceramicstudio/ceramic-sdk",
@@ -15,7 +18,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -42,7 +47,9 @@
     "@types/varint": "^6.0.3"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },

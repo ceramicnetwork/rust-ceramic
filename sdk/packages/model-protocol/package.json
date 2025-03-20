@@ -1,9 +1,13 @@
 {
   "name": "@ceramic-sdk/model-protocol",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
-  "keywords": ["ceramic", "stream", "model"],
+  "keywords": [
+    "ceramic",
+    "stream",
+    "model"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ceramicstudio/ceramic-sdk",
@@ -15,7 +19,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -46,7 +52,9 @@
     "multiformats": "^13.3.0"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },

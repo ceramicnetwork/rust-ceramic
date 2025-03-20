@@ -1,9 +1,15 @@
 {
   "name": "@ceramic-sdk/model-instance-client",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
-  "keywords": ["ceramic", "stream", "model", "document", "client"],
+  "keywords": [
+    "ceramic",
+    "stream",
+    "model",
+    "document",
+    "client"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ceramicstudio/ceramic-sdk",
@@ -15,7 +21,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -46,7 +54,9 @@
     "ts-essentials": "^10.0.2"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },

@@ -1,9 +1,13 @@
 {
   "name": "@ceramic-sdk/http-client",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
-  "keywords": ["ceramic", "http", "client"],
+  "keywords": [
+    "ceramic",
+    "http",
+    "client"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ceramicstudio/ceramic-sdk",
@@ -15,7 +19,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -43,7 +49,9 @@
     "type-fest": "^4.26.1"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
