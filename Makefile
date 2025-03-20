@@ -89,7 +89,7 @@ release-pr:
 # Prepare a SDK release PR.
 .PHONY: sdk-release-pr
 sdk-release-pr:
-	./ci-scripts/sdk-release_pr.sh
+	./ci-scripts/sdk_release_pr.sh
 
 .PHONY: test
 test:
