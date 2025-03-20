@@ -5,6 +5,7 @@ use arrow::{
     datatypes::DataType,
 };
 use arrow_schema::Field;
+use cid::Cid;
 use datafusion::{
     common::{
         cast::{as_binary_array, as_uint32_array},
@@ -16,6 +17,7 @@ use datafusion::{
     },
 };
 use json_patch::PatchOperation;
+use tracing::warn;
 
 use super::{bytes_value_at, u32_value_at, EventDataContainer};
 
@@ -168,10 +170,15 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         resolved_previous_states.append_value(&state);
                     } else {
                         resolved_previous_states.append_value(previous_state);
-                        new_states.append_value(CeramicPatchEvaluator::apply_patch(
-                            patches.value(i),
-                            previous_state,
-                        )?);
+                        match Self::apply_patch(patches.value(i), previous_state) {
+                            Ok(data) => {
+                                new_states.append_value(data);
+                            }
+                            Err(err) => {
+                                warn!(%err, event_cid=?Cid::read_bytes(event_cids.value(i)), "failed to apply patch to model event");
+                                new_states.append_null();
+                            }
+                        };
                     }
                 } else {
                     // Unreachable when data is well formed.
