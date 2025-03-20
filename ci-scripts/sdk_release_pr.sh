@@ -40,5 +40,4 @@ gh pr create \
     --head "$pr_branch" \
     --label release \
     --title "$msg" \
-    --body "Release ${version}" \
-    --dry-run
+    --body "Release ${version}"
