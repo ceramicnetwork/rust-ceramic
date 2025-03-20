@@ -1,0 +1,40 @@
+name: Create SDK Release PR
+
+permissions:
+  contents: write
+  pull-requests: write
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    container:
+      # See https://github.com/3box/rust-builder
+      image: public.ecr.aws/r5b3e0r5/3box/rust-builder:latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PAT }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: git config
+        run: |
+          git config --global --add safe.directory '*'
+          git config user.email "github@3box.io"
+          git config user.name "Github Automation"
+      - name: Install pnpm
+        id: pnpm-install
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.8.0
+          run_install: false
+      - name: Install dependencies
+        working-directory: sdk
+        run: pnpm install --frozen-lockfile
+      - name: Create release PR
+        run: make sdk-release-pr
+
