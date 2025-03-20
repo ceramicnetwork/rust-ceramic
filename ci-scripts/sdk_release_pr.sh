@@ -24,9 +24,9 @@ done
 # Ensure we are in the git root
 cd $(git rev-parse --show-toplevel)
 
+echo "Preparing PR for SDK version $version"
+
 # Commit the specified packages
-# `cargo release commit` currently fails to build a good commit message.
-# Using git commit directly for now
 current_branch=$(git rev-parse --abbrev-ref HEAD)
 pr_branch="sdk-version-${version}"
 git checkout -b "$pr_branch"
@@ -40,4 +40,5 @@ gh pr create \
     --head "$pr_branch" \
     --label release \
     --title "$msg" \
-    --body "Release ${version}"
+    --body "Release ${version}" \
+    --dry-run
