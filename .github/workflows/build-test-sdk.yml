@@ -192,7 +192,6 @@ jobs:
       - name: Install dependencies
         working-directory: sdk
         run: pnpm install --frozen-lockfile
-        working-directory: sdk
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
