@@ -27,6 +27,12 @@ jobs:
           git config --global --add safe.directory '*'
           git config user.email "github@3box.io"
           git config user.name "Github Automation"
+      - name: Install pnpm
+        id: pnpm-install
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.8.0
+          run_install: false
       - name: Install dependencies
         working-directory: sdk
         run: pnpm install --dev --frozen-lockfile
