@@ -27,6 +27,9 @@ jobs:
           git config --global --add safe.directory '*'
           git config user.email "github@3box.io"
           git config user.name "Github Automation"
+      - name: Install dependencies
+        working-directory: sdk
+        run: pnpm install --dev --frozen-lockfile
       - name: Create release PR
         run: make sdk-release-pr
 
