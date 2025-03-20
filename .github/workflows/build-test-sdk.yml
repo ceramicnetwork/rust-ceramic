@@ -1,0 +1,201 @@
+name: Build and Unit Test SDK
+
+on:
+  pull_request: {}
+  merge_group:
+    branches: [ "main" ]
+
+env:
+  CI: true
+  DEBUG: napi:*
+  APP_NAME: flight-sql-client
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  CARGO_INCREMENTAL: '1'
+  FLIGHT_SQL_PATH: ./sdk/packages/flight-sql-client/
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-13
+            target: x86_64-apple-darwin
+            build: pnpm build:rust --target x86_64-apple-darwin && pnpm build:js
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: pnpm build:rust --target x86_64-unknown-linux-gnu && pnpm build:js
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: pnpm build:rust --target aarch64-apple-darwin && pnpm build:js
+    name: stable - ${{ matrix.settings.target }} - node@20
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install pnpm
+        id: pnpm-install
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.8.0
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}_${{ matrix.settings.target }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}_${{ matrix.settings.target }}-pnpm-store-
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            .cargo-cache
+            target/
+          key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+      - name: Setup toolchain
+        run: ${{ matrix.settings.setup }}
+        if: ${{ matrix.settings.setup }}
+        shell: bash
+      - name: Install dependencies and buld
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm run lint:ci
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        shell: bash
+      - name: Run unit tests
+        run: pnpm test:ci
+        shell: bash
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: ${{ env.FLIGHT_SQL_PATH }}${{ env.APP_NAME }}.*.node
+          if-no-files-found: error
+  test-macOS-binding:
+    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            architecture: arm64
+          - host: macos-13
+            target: x86_64-apple-darwin
+            architecture: x64
+        node:
+          - '20'
+          - '22'
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          architecture: ${{ matrix.settings.architecture }}
+      - name: Install pnpm
+        id: pnpm-install
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.8.0
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}_${{ matrix.settings.target }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}_${{ matrix.settings.target }}-pnpm-store-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: ${{ env.FLIGHT_SQL_PATH }}
+      - name: List packages
+        working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: ls -R .
+        shell: bash
+      - name: Test bindings
+        working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: pnpm test
+  test-linux-x64-gnu-binding:
+    name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - '20'
+          - '22'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install pnpm
+        id: pnpm-install
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9.8.0
+          run_install: false
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}_x86_64-unknown-linux-gnu-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}_x86_64-unknown-linux-gnu-pnpm-store-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-x86_64-unknown-linux-gnu
+          path: ${{ env.FLIGHT_SQL_PATH }}
+      - name: List packages
+        working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: ls -R .
+        shell: bash
+      - name: Test bindings
+        working-directory: ${{ env.FLIGHT_SQL_PATH }}
+        run: pnpm test

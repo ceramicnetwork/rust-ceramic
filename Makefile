@@ -86,6 +86,11 @@ debug:
 release-pr:
 	./ci-scripts/release_pr.sh
 
+# Prepare a SDK release PR.
+.PHONY: sdk-release-pr
+sdk-release-pr:
+	./ci-scripts/sdk-release_pr.sh
+
 .PHONY: test
 test:
 	# Test with default features
