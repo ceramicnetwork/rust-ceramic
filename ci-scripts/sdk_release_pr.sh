@@ -18,7 +18,7 @@ set -e
 for p in $(pwd)/sdk/packages/*
 do
   cd $p
-  npm version minor
+  version=$(npm version minor)
 done
 
 # Ensure we are in the git root
@@ -28,9 +28,9 @@ cd $(git rev-parse --show-toplevel)
 # `cargo release commit` currently fails to build a good commit message.
 # Using git commit directly for now
 current_branch=$(git rev-parse --abbrev-ref HEAD)
-pr_branch="sdk-version-v${version}"
+pr_branch="sdk-version-${version}"
 git checkout -b "$pr_branch"
-msg="chore(sdk): version v${version}"
+msg="chore(sdk): version ${version}"
 git commit -am "$msg"
 git push --set-upstream origin "$pr_branch"
 
@@ -40,4 +40,4 @@ gh pr create \
     --head "$pr_branch" \
     --label release \
     --title "$msg" \
-    --body "Release v${version}"
+    --body "Release ${version}"
