@@ -39,4 +39,5 @@ gh pr create \
     --base "$current_branch" \
     --head "$pr_branch" \
     --label release \
-    --title "$msg"
+    --title "$msg" \
+    --body "Release v${version}"
