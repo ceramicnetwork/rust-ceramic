@@ -17,6 +17,7 @@ use datafusion::{
     },
 };
 use json_patch::PatchOperation;
+use tracing::warn;
 
 use super::{bytes_value_at, u32_value_at, EventDataContainer};
 
@@ -218,9 +219,17 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     } else {
                         let patch = patches.value(i);
                         resolved_patches.append_value(patch);
-                        let (data, model_version) = Self::apply_patch(patch, previous_state)?;
-                        new_states.append_value(data);
-                        model_versions.append_option(model_version.map(|mv| mv.to_bytes()));
+                        match Self::apply_patch(patch, previous_state) {
+                            Ok((data, model_version)) => {
+                                new_states.append_value(data);
+                                model_versions.append_option(model_version.map(|mv| mv.to_bytes()));
+                            }
+                            Err(err) => {
+                                warn!(%err, event_cid=?Cid::read_bytes(event_cids.value(i)), "failed to apply patch to model instance event");
+                                new_states.append_null();
+                                model_versions.append_null();
+                            }
+                        };
                     }
                 } else {
                     // Unreachable when data is well formed.
