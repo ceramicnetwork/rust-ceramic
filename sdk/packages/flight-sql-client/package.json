@@ -4,14 +4,8 @@
   "description": "A FlightSQL client. Currently only supports Node.js",
   "main": "index.js",
   "types": "index.d.ts",
-  "files": [
-    "index.js",
-    "index.d.ts"
-  ],
-  "keywords": [
-    "ceramic",
-    "FlightSQL"
-  ],
+  "files": ["index.js", "index.d.ts"],
+  "keywords": ["ceramic", "FlightSQL"],
   "napi": {
     "name": "flight-sql-client",
     "triples": {
@@ -46,9 +40,7 @@
     "version": "napi version"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [
-      ".ts"
-    ],
+    "extensionsToTreatAsEsm": [".ts"],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },

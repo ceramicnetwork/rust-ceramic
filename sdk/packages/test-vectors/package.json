@@ -4,10 +4,7 @@
   "private": true,
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
-  "keywords": [
-    "ceramic",
-    "test"
-  ],
+  "keywords": ["ceramic", "test"],
   "repository": {
     "type": "git",
     "url": "https://github.com/ceramicstudio/ceramic-sdk",
@@ -19,9 +16,7 @@
   "exports": {
     ".": "./dist/index.js"
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "engines": {
     "node": ">=20"
   },
@@ -66,9 +61,7 @@
     "uint8arrays": "^5.1.0"
   },
   "jest": {
-    "extensionsToTreatAsEsm": [
-      ".ts"
-    ],
+    "extensionsToTreatAsEsm": [".ts"],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
