@@ -35,7 +35,7 @@ jobs:
           run_install: false
       - name: Install dependencies
         working-directory: sdk
-        run: pnpm install --dev --frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Create release PR
         run: make sdk-release-pr
 
