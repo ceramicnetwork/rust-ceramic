@@ -15,7 +15,6 @@ graph LR;
     streams;
     time_conclusions;
     conclusion_events;
-    model_schemas;
     event_states;
     stream_tips;
     stream_states;
@@ -24,7 +23,6 @@ graph LR;
     streams --> conclusion_events;
     time_conclusions --> conclusion_events;
     conclusion_events --> event_states;
-    model_schemas --> event_states;
     event_states --> stream_tips;
     stream_tips --> stream_states;
 ```
@@ -83,17 +81,17 @@ The conclusion_events table contains a row for each event in a stream and repres
 
 #### Schema
 
-| Column      | Type              | Description                                                                                     |
-| ------      | ----              | -----------                                                                                     |
-| index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
-| stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
-| controller  | string            | Controller of the stream                                                                        |
-| dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
-| event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
-| data        | bytes             | The event payload, content is stream type specific                                              |
-| previous    | list(bytes)       | Ordered list of CID previous to this event. Meaning of the order is stream type dependent       |
+| Column                 | Type              | Description                                                                               |
+| ------                 | ----              | -----------                                                                               |
+| conclusion_event_order | u64               | Order of this event. Value is always greater than any previous event in the same stream   |
+| stream_cid             | bytes             | Cid of the stream                                                                         |
+| stream_type            | u8                | Type of the stream, see [stream type values](#stream-types)                               |
+| controller             | string            | Controller of the stream                                                                  |
+| dimensions             | map(string,bytes) | Set of key values dimension pairs of the stream                                           |
+| event_cid              | bytes             | Cid of the event                                                                          |
+| event_type             | u8                | Type of the event, see [event type values](#event-types)                                  |
+| data                   | bytes             | The event payload, content is stream type specific                                        |
+| previous               | list(bytes)       | Ordered list of CID previous to this event. Meaning of the order is stream type dependent |
 
 
 #### Transformation
@@ -108,13 +106,6 @@ Conclusions include:
 
 This table joins the raw_events, time_conclusions, and streams tables in order to make the conclusions about the raw events.
 
-### model_schemas
-
-The model_schemas table contains a row for each model known to the node and contains the complete resolved schema of the model.
-
-TBD how this table is populated and its schema.
-This table may be able to be combined with the streams table. Should we?
-
 ### event_states
 
 The event_states table contains a row for each event in a stream and the state of the document at that point in the stream.
@@ -126,16 +117,19 @@ The event_states table contains a row for each event in a stream and the state o
 
 #### Schema
 
-| Column      | Type              | Description                                                                                     |
-| ------      | ----              | -----------                                                                                     |
-| index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
-| stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
-| controller  | string            | Controller of the stream                                                                        |
-| dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
-| event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
-| data        | bytes             | The event payload, content is stream type specific                                              |
+| Column                 | Type              | Description                                                                                                                                      |
+| ------                 | ----              | -----------                                                                                                                                      |
+| conclusion_event_order | u64               | Order of this event from the conclusion_events table.                                                                                            |
+| event_state_order      | u64               | Order of this event state. Value is always greater than any previous event in the same stream and any dependent streams (i.e. model streams) |
+| stream_cid             | bytes             | Cid of the stream                                                                                                                                |
+| stream_type            | u8                | Type of the stream, see [stream type values](#stream-types)                                                                                      |
+| controller             | string            | Controller of the stream                                                                                                                         |
+| dimensions             | map(string,bytes) | Set of key values dimension pairs of the stream                                                                                                  |
+| event_cid              | bytes             | Cid of the event                                                                                                                                 |
+| event_type             | u8                | Type of the event, see [event type values](#event-types)                                                                                         |
+| event_height           | i32               | Number of events between this event and the init event of the stream.                                                                            |
+| data                   | bytes             | The event payload, content is stream type specific                                                                                               |
+| validation_errors      | list(string)      | List of validation errors, will always be an empty list (not null) when the stream state is valid.                                               |
 
 #### Transformation
 
@@ -153,16 +147,15 @@ The tip represents the most recent event in each branch of the stream, where _re
 
 #### Schema
 
-| Column      | Type              | Description                                                                                     |
-| ------      | ----              | -----------                                                                                     |
-| index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
-| stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
-| controller  | string            | Controller of the stream                                                                        |
-| dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
-| event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
-| data        | bytes             | The event payload, content is stream type specific                                              |
+| Column            | Type              | Description                                                                           |
+| ------            | ----              | -----------                                                                           |
+| event_state_order | u64               | Order of this event from the event_states table.                                      |
+| stream_tip_order  | u64               | Order of this stream tips. Value is always greater than any previous stream tips set. |
+| stream_cid        | bytes             | Cid of the stream                                                                     |
+| stream_type       | u8                | Type of the stream, see [stream type values](#stream-types)                           |
+| controller        | string            | Controller of the stream                                                              |
+| dimensions        | map(string,bytes) | Set of key values dimension pairs of the stream                                       |
+| tips              | list(bytes)       | Complete list of all tips for the stream.                                             |
 
 #### Transformation
 
@@ -179,16 +172,18 @@ The stream_states table contains a row for each stream representing the canonica
 
 #### Schema
 
-| Column      | Type              | Description                                                                                     |
-| ------      | ----              | -----------                                                                                     |
-| index       | u64               | Order of this event. Index is always greater than the index of any previous event in the stream |
-| stream_cid  | bytes             | Cid of the stream                                                                               |
-| stream_type | u8                | Type of the stream, see [stream type values](#stream-types)                                     |
-| controller  | string            | Controller of the stream                                                                        |
-| dimensions  | map(string,bytes) | Set of key values dimension pairs of the stream                                                 |
-| event_cid   | bytes             | Cid of the event                                                                                |
-| event_type  | u8                | Type of the event, see [event type values](#event-types)                                        |
-| data        | bytes             | The event payload, content is stream type specific                                              |
+| Column             | Type              | Description                                                                                        |
+| ------             | ----              | -----------                                                                                        |
+| stream_tip_order   | u64               | Order of this event from the stream_tips table.                                                    |
+| stream_state_order | u64               | Order of this stream state. Value is always greater than any previous stream state.                |
+| stream_cid         | bytes             | Cid of the stream                                                                                  |
+| stream_type        | u8                | Type of the stream, see [stream type values](#stream-types)                                        |
+| controller         | string            | Controller of the stream                                                                           |
+| dimensions         | map(string,bytes) | Set of key values dimension pairs of the stream                                                    |
+| event_cid          | bytes             | Cid of the event                                                                                   |
+| event_type         | u8                | Type of the event, see [event type values](#event-types)                                           |
+| event_height       | i32               | Number of events between this event and the init event of the stream.                              |
+| data               | bytes             | The event payload, content is stream type specific                                                 |
 
 #### Transformation
 
