@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use arrow::datatypes::{DataType, Field, Int32Type};
+use ceramic_core::ssi::caip2;
 use ceramic_core::METAMODEL_STREAM_ID;
 use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
@@ -110,7 +111,34 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-    //TODO Add temporal conclusions, i.e the block timestamp of this event
+
+    // TODO figure out how to populate these values.
+    // Once populated we need to update the conclusion_events table schema to include them
+    // Then we need to preserve them in the event_states table
+    // Finally in the resolver we can use this information to determine a canonical tip for a
+    // stream.
+    //
+    // Challenges: The anchor proof information is gather when validating the event but then
+    // forgotten. It likely needs to be persisteted into a new sqlite table and then the conclusion
+    // feed call needs to join against that table to produce these fields.
+    //
+    // How do we populate that table for existing data?
+    // Likely need some kind of explicit migration command that can be run to populate the table.
+    //
+    /// It is known that the time event existed before this time as a Unix timestamp in seconds.
+    pub before: u64,
+
+    // Only before should be needed for conflict resolution but it may be nice to preserve these
+    // other values as well?
+    //
+    /// Chain ID where this time event was anchored.
+    pub chain_id: String,
+    /// Transaction hash that anchored this time event.
+    pub tx_hash: String,
+    /// Transaction type (TODO: not sure what this is).
+    pub tx_type: String,
+    /// Root cid of the proof.
+    pub root: Cid,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {

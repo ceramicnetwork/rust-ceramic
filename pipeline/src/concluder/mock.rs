@@ -7,8 +7,7 @@ use prometheus_client::registry::Registry;
 use crate::metrics::Metrics;
 
 use super::{
-    Concluder, ConcluderActor, ConcluderEnvelope, ConcluderHandle, EventsSinceMsg, NewEventsMsg,
-    SubscribeSinceMsg,
+    Concluder, ConcluderActor, ConcluderEnvelope, ConcluderHandle, NewEventsMsg, SubscribeSinceMsg,
 };
 
 mock! {
@@ -28,11 +27,6 @@ mock! {
             &mut self,
             message: SubscribeSinceMsg,
         ) -> <SubscribeSinceMsg as Message>::Result;
-        #[allow(missing_docs)]
-        pub fn handle_events_since(
-            &mut self,
-            message: EventsSinceMsg,
-        ) -> <EventsSinceMsg as Message>::Result;
     }
 }
 
@@ -50,13 +44,6 @@ impl Handler<SubscribeSinceMsg> for MockConcluder {
         message: SubscribeSinceMsg,
     ) -> <SubscribeSinceMsg as Message>::Result {
         self.handle_subscribe_since(message)
-    }
-}
-
-#[async_trait]
-impl Handler<EventsSinceMsg> for MockConcluder {
-    async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        self.handle_events_since(message)
     }
 }
 
