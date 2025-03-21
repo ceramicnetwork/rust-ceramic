@@ -14,12 +14,18 @@
 # Fail script if any command fails
 set -e
 
+SDK_DIR=$(dirname $0)/../sdk
+
 # Bump version of all packages
 for p in $(pwd)/sdk/packages/*
 do
   cd $p
   version=$(npm version minor)
 done
+
+# Run lint fix to fix the issues the npm version command creates
+cd $SDK_DIR
+pnpm run lint:fix
 
 # Ensure we are in the git root
 cd $(git rev-parse --show-toplevel)
