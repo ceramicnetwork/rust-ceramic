@@ -2242,7 +2242,7 @@ dependencies = [
  "futures",
  "integer-encoding",
  "ipld-core",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "multihash-codetable",
  "serde",
  "serde_ipld_dagcbor",
@@ -2338,7 +2338,7 @@ dependencies = [
  "itertools 0.13.0",
  "mockall",
  "multibase 0.9.1",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "multihash-codetable",
  "multihash-derive 0.9.0",
  "paste",
@@ -2556,7 +2556,7 @@ dependencies = [
  "libp2p",
  "multiaddr",
  "multibase 0.9.1",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "multihash-codetable",
  "multihash-derive 0.9.0",
  "names",
@@ -2851,7 +2851,7 @@ checksum = "3147d8272e8fa0ccd29ce51194dd98f79ddfb8191ba9e3409884e751798acf3a"
 dependencies = [
  "core2",
  "multibase 0.9.1",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "serde",
  "serde_bytes",
  "unsigned-varint 0.8.0",
@@ -6963,7 +6963,7 @@ dependencies = [
  "futures-timer",
  "libp2p-identity",
  "multiaddr",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "multistream-select",
  "once_cell",
  "parking_lot",
@@ -7084,7 +7084,7 @@ dependencies = [
  "bs58 0.5.1",
  "ed25519-dalek 2.1.1",
  "hkdf",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "quick-protobuf",
  "rand 0.8.5",
  "ring 0.17.8",
@@ -7180,7 +7180,7 @@ dependencies = [
  "libp2p-core",
  "libp2p-identity",
  "multiaddr",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "once_cell",
  "quick-protobuf",
  "rand 0.8.5",
@@ -7776,7 +7776,7 @@ dependencies = [
  "data-encoding",
  "libp2p-identity",
  "multibase 0.9.1",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "percent-encoding 2.3.1",
  "serde",
  "static_assertions",
@@ -7827,13 +7827,13 @@ dependencies = [
 
 [[package]]
 name = "multihash"
-version = "0.19.1"
+version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "076d548d76a0e2a0d4ab471d0b1c36c577786dfc4471242035d97a12a735c492"
+checksum = "6b430e7953c29dd6a09afc29ff0bb69c6e306329ee6794700aee27b76a1aea8d"
 dependencies = [
  "core2",
  "serde",
- "unsigned-varint 0.7.2",
+ "unsigned-varint 0.8.0",
 ]
 
 [[package]]
@@ -7876,7 +7876,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "890e72cb7396cb99ed98c1246a97b243cc16394470d94e0bc8b0c2c11d84290e"
 dependencies = [
  "core2",
- "multihash 0.19.1",
+ "multihash 0.19.3",
  "multihash-derive-impl",
 ]
 
