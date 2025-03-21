@@ -6,8 +6,8 @@
   "keywords": ["ceramic", "stream", "model"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/model-protocol"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/model-protocol"
   },
   "type": "module",
   "main": "dist/index.js",

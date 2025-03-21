@@ -6,8 +6,8 @@
   "keywords": ["ceramic", "stream", "model", "client"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/model-client"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/model-client"
   },
   "type": "module",
   "main": "dist/index.js",

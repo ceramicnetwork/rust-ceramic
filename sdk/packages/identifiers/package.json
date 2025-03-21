@@ -6,8 +6,8 @@
   "keywords": ["ceramic", "identifiers"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/identifiers"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/identifiers"
   },
   "type": "module",
   "main": "dist/index.js",
