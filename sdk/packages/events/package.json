@@ -6,8 +6,8 @@
   "keywords": ["ceramic", "events"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/events"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/events"
   },
   "type": "module",
   "main": "dist/index.js",

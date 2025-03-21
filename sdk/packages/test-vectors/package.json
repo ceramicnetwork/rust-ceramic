@@ -7,8 +7,8 @@
   "keywords": ["ceramic", "test"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/test-vectors"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/test-vectors"
   },
   "type": "module",
   "main": "dist/index.js",
