@@ -240,6 +240,8 @@ pub struct DaemonOpts {
     anchor_poll_retry_count: u64,
 
     /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    /// 
+    /// Note: only the first valid RPC URL will be used by the time event validator
     #[arg(
         long,
         use_value_delimiter = true,
