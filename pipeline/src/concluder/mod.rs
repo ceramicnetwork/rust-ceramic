@@ -169,7 +169,6 @@ actor_envelope! {
     ConcluderRecorder,
     NewEvents => NewEventsMsg,
     SubscribeSince => SubscribeSinceMsg,
-    EventsSince => EventsSinceMsg,
 }
 
 /// Notify actor of new events
@@ -307,23 +306,6 @@ async fn events_since(
             conclusion_events.filter(col("conclusion_event_order").gt(lit(offset)))?;
     }
     Ok(conclusion_events.execute_stream().await?)
-}
-
-/// Request the events since a highwater mark
-#[derive(Debug)]
-pub struct EventsSinceMsg {
-    /// Produce message with an conclusion_event_order greater than the highwater_mark.
-    pub highwater_mark: u64,
-}
-impl Message for EventsSinceMsg {
-    type Result = anyhow::Result<SendableRecordBatchStream>;
-}
-
-#[async_trait]
-impl Handler<EventsSinceMsg> for Concluder {
-    async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, Some(message.highwater_mark)).await
-    }
 }
 
 #[async_trait]

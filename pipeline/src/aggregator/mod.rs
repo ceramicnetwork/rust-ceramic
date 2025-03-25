@@ -870,6 +870,8 @@ actor_envelope! {
     AggregatorRecorder,
     SubscribeSince => SubscribeSinceMsg,
     NewConclusionEvents => NewConclusionEventsMsg,
+    // TODO: Remove this message and use the analogous message on the Resolver.
+    // This way the canonical stream state is provided via the API
     StreamState => StreamStateMsg,
 }
 
@@ -882,13 +884,13 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
         let subscription = self.broadcast_tx.subscribe();
         let ctx = self.ctx.clone();
         rows_since(
-            schemas::conclusion_events(),
+            schemas::event_states(),
             "event_state_order",
             message.projection,
             message.offset,
             message.limit,
             Box::pin(RecordBatchStreamAdapter::new(
-                schemas::conclusion_events(),
+                schemas::event_states(),
                 tokio_stream::wrappers::BroadcastStream::new(subscription)
                     .map_err(|err| exec_datafusion_err!("{err}")),
             )),
