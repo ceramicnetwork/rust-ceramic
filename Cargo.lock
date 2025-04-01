@@ -3657,8 +3657,9 @@ dependencies = [
 
 [[package]]
 name = "datafusion-federation"
-version = "0.3.5"
-source = "git+https://github.com/nathanielc/datafusion-federation.git?branch=chore%2Fdatafusion-45#33a8def4641edb4c7cd82ad22d58fc3f03120e71"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66502e54fb3e95becab87d1afcbea653036ff53823caef6499d4b4e9c7489d62"
 dependencies = [
  "arrow-json",
  "async-stream",
@@ -3670,7 +3671,7 @@ dependencies = [
 [[package]]
 name = "datafusion-flight-sql-server"
 version = "0.4.6"
-source = "git+https://github.com/nathanielc/datafusion-flight-sql-server.git?branch=chore%2Fdatafusion-45#ce39b2b1ad22755a8f5db3d8377c7977115c317d"
+source = "git+https://github.com/datafusion-contrib/datafusion-flight-sql-server.git?branch=main#12151b7a726d5cd491737cf7b76223122fab3180"
 dependencies = [
  "arrow",
  "arrow-flight",
