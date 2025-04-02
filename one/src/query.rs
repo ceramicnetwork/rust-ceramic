@@ -37,7 +37,7 @@ pub struct QueryOpts {
     output: Output,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Copy, Debug)]
 enum Output {
     /// Output results in a human readable tabular form
     Table,
@@ -192,19 +192,52 @@ pub async fn run(opts: QueryOpts) -> Result<()> {
         }
     };
 
-    let batches = execute_flight(&mut client, flight_info)
+    execute_flight(&mut client, flight_info, opts.output)
         .await
         .context("read flight data")?;
 
-    match opts.output {
+    Ok(())
+}
+
+async fn execute_flight(
+    client: &mut FlightSqlServiceClient<Channel>,
+    info: FlightInfo,
+    output: Output,
+) -> Result<()> {
+    let schema = Arc::new(Schema::try_from(info.clone()).context("valid schema")?);
+    let schema = RecordBatch::new_empty(schema);
+    for endpoint in info.endpoint {
+        let Some(ticket) = &endpoint.ticket else {
+            bail!("did not get ticket");
+        };
+
+        let mut flight_data = client.do_get(ticket.clone()).await.context("do get")?;
+
+        while let Some(data) = flight_data
+            .try_next()
+            .await
+            .context("reading flight data")?
+        {
+            print_record_batches(output, &[schema.clone(), data])
+                .await
+                .context("print record batches")?;
+        }
+    }
+
+    Ok(())
+}
+
+// Helper function to print a record batch
+async fn print_record_batches(output: Output, batches: &[RecordBatch]) -> Result<()> {
+    match output {
         Output::Table => {
-            let res = pretty_format_batches(batches.as_slice()).context("format results")?;
+            let res = pretty_format_batches(batches).context("format results")?;
             println!("{res}");
         }
         Output::Csv => {
             let mut buffer = Vec::new();
             let mut header = true;
-            for batch in &batches {
+            for batch in batches {
                 {
                     let mut writer = arrow::csv::WriterBuilder::new()
                         .with_header(header)
@@ -219,7 +252,7 @@ pub async fn run(opts: QueryOpts) -> Result<()> {
         }
         Output::Json => {
             let mut buffer = Vec::new();
-            for batch in &batches {
+            for batch in batches {
                 {
                     let mut writer =
                         arrow::json::Writer::<_, arrow::json::writer::LineDelimited>::new(
@@ -231,34 +264,8 @@ pub async fn run(opts: QueryOpts) -> Result<()> {
                 buffer.clear();
             }
         }
-    }
-
+    };
     Ok(())
-}
-
-async fn execute_flight(
-    client: &mut FlightSqlServiceClient<Channel>,
-    info: FlightInfo,
-) -> Result<Vec<RecordBatch>> {
-    let schema = Arc::new(Schema::try_from(info.clone()).context("valid schema")?);
-    let mut batches = Vec::with_capacity(info.endpoint.len() + 1);
-    batches.push(RecordBatch::new_empty(schema));
-
-    for endpoint in info.endpoint {
-        let Some(ticket) = &endpoint.ticket else {
-            bail!("did not get ticket");
-        };
-
-        let mut flight_data = client.do_get(ticket.clone()).await.context("do get")?;
-
-        let mut endpoint_batches: Vec<_> = (&mut flight_data)
-            .try_collect()
-            .await
-            .context("collect data stream")?;
-        batches.append(&mut endpoint_batches);
-    }
-
-    Ok(batches)
 }
 
 fn construct_record_batch_from_params(
