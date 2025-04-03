@@ -23,17 +23,17 @@ use futures::TryStreamExt as _;
 
 // A source for a streaming table.
 //
-// A call to [`Self::subscribe`] followed by a call to [`Self::since`] must produce all data where "index" is greater
+// A call to [`Self::subscribe`] followed by a call to [`Self::since`] must produce all data where "conclusion_event_order" is greater
 // than the highwater_mark. Duplicate data may be produced between the two calls.
 //
-// Subsequent data batches from subscribe must be in increasing "index" order.
+// Subsequent data batches from subscribe must be in increasing "conclusion_event_order" order.
 //
 // TODO add error handling
 #[async_trait]
 pub trait FeedTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
     fn schema(&self) -> SchemaRef;
-    // Subscribe to all new data for this table in increasing "index" order since offset.
-    // All received RecordBatches must contain and be ordered by an "index" u64 column.
+    // Subscribe to all new data for this table in increasing "conclusion_event_order" order since offset.
+    // All received RecordBatches must contain and be ordered by an "conclusion_event_order" u64 column.
     // The projection is a list of column indexes that should be produced.
     async fn subscribe_since(
         &self,
@@ -44,8 +44,8 @@ pub trait FeedTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
 }
 
 /// A table that when queried produces an unbounded stream of data.
-/// It is assumed that the table contains an "index" column and new data arrives in increasing
-/// "index" order.
+/// It is assumed that the table contains an "conclusion_event_order" column and new data arrives in increasing
+/// "conclusion_event_order" order.
 #[derive(Debug)]
 pub struct FeedTable<S> {
     source: S,
@@ -57,7 +57,7 @@ impl<S> FeedTable<S> {
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
-                .is_some_and(|column| column.name == "index")
+                .is_some_and(|column| column.name == "conclusion_event_order")
                 .then(|| {
                     if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
                         highwater_mark.to_owned()
@@ -139,7 +139,7 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
                 if highwater_mark.is_some() {
                     TableProviderFilterPushDown::Exact
                 } else {
-                    TableProviderFilterPushDown::Unsupported
+                    TableProviderFilterPushDown::Inexact
                 }
             })
             .collect())
