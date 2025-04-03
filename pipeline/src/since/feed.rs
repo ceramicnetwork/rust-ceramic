@@ -139,7 +139,7 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
                 if highwater_mark.is_some() {
                     TableProviderFilterPushDown::Exact
                 } else {
-                    TableProviderFilterPushDown::Inexact
+                    TableProviderFilterPushDown::Unsupported
                 }
             })
             .collect())
