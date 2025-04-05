@@ -107,7 +107,7 @@ pub struct Aggregator {
     ctx: SessionContextRef,
     broadcast_tx: broadcast::Sender<RecordBatch>,
     max_cached_rows: usize,
-    order: u64,
+    max_event_state_order: u64,
     object_store: Arc<dyn ObjectStore>,
 }
 
@@ -232,7 +232,7 @@ impl Aggregator {
             ctx: ctx.session(),
             broadcast_tx,
             max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
-            order: max_event_state_order.unwrap_or_default(),
+            max_event_state_order: max_event_state_order.unwrap_or_default(),
             object_store: ctx.object_store.clone(),
         };
 
@@ -733,8 +733,8 @@ impl Aggregator {
             )]);
         }
 
-        let start = self.order;
-        self.order += row_count as u64;
+        let start_event_state = self.max_event_state_order;
+        self.max_event_state_order += row_count as u64;
         // Assign an insertion order value to the new event state rows
         let ordered = event_states
             .window(vec![row_number()
@@ -755,7 +755,7 @@ impl Aggregator {
             .select(vec![
                 col("conclusion_event_order"),
                 // Compute new order value for the event_states table
-                (col("row_num") + lit(start)).alias("event_state_order"),
+                (col("row_num") + lit(start_event_state)).alias("event_state_order"),
                 col("stream_cid"),
                 col("stream_type"),
                 col("controller"),
@@ -883,7 +883,7 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
         let ctx = self.ctx.clone();
         rows_since(
             schemas::conclusion_events(),
-            "event_state_order",
+            "conclusion_event_order",
             message.projection,
             message.offset,
             message.limit,
@@ -909,10 +909,13 @@ async fn events_since(
         // Do not return the partition columns
         .drop_columns(&["event_cid_partition"])?;
     if let Some(offset) = offset {
-        event_states = event_states.filter(col("event_state_order").gt(lit(offset)))?;
+        event_states = event_states.filter(col("conclusion_event_order").gt_eq(lit(offset)))?;
     }
     Ok(event_states
-        .sort(vec![col("event_state_order").sort(true, true)])?
+        .sort(vec![
+            col("conclusion_event_order").sort(true, true),
+            col("event_state_order").sort(true, true),
+        ])?
         .execute_stream()
         .await?)
 }

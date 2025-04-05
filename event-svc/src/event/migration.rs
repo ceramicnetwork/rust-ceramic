@@ -14,7 +14,7 @@ use recon::ReconItem;
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::{fs::File, io::AsyncWriteExt as _};
-use tracing::{debug, error, info, instrument, Level};
+use tracing::{debug, error, info, instrument, trace, Level};
 
 use crate::{
     event::{BlockStore, DeliverableRequirement},
@@ -217,6 +217,13 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 payload.header().controllers()[0].clone(),
                 cid,
             );
+            if self.is_filtered_out(&event_builder) {
+                trace!(
+                    event_cid=%event_builder.event_cid,
+                    "skipping unreferenced init payload due to model filter"
+                );
+                return Ok(());
+            }
             let event = unvalidated::init::Event::new(payload);
             let event: unvalidated::Event<Ipld> = unvalidated::Event::from(Box::new(event));
             self.validate_build_and_push(event_builder, event, &model)
@@ -283,6 +290,11 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
                 )
             }
         };
+
+        if self.is_filtered_out(&event_builder) {
+            trace!(event_cid=%event_builder.event_cid, "skipping signed event due to model filter");
+            return Ok(());
+        }
 
         let model = ModelContext::from(event_builder.sep.as_slice());
 
@@ -370,6 +382,12 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             unvalidated::RawEvent::Unsigned(payload) => Ok(payload),
         }
     }
+
+    /// Returns true if the event should be skipped due to the model (sep) filter included
+    fn is_filtered_out(&self, event_builder: &EventBuilder) -> bool {
+        !self.sep_filter.is_empty() && !self.sep_filter.contains(&event_builder.sep)
+    }
+
     // Find and add all blocks related to this time event
     #[instrument(skip(self, event), ret(level = Level::DEBUG))]
     async fn process_time_event(
@@ -386,6 +404,10 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
             init_payload.header().controllers()[0].clone(),
             init,
         );
+        if self.is_filtered_out(&event_builder) {
+            trace!(event_cid=%event_builder.event_cid, "skipping time event due to model filter");
+            return Ok(());
+        }
         let proof_id = event.proof();
         let data = self
             .load_block(&proof_id)
@@ -440,40 +462,38 @@ impl<'a, S: BlockStore> Migrator<'a, S> {
         event: unvalidated::Event<Ipld>,
         model: &ModelContext,
     ) -> Result<()> {
-        if self.sep_filter.is_empty() || self.sep_filter.contains(&event_builder.sep) {
-            match &event {
-                unvalidated::Event::Time(event) => {
-                    if let Some(supported_chains) = &self.supported_chains {
-                        let chain_id = event.proof().chain_id().to_owned();
-                        if !supported_chains.contains(&chain_id) {
-                            return Err(anyhow!("event has unsupported chain: {chain_id}"))
-                                .with_model_context(model);
-                        }
+        match &event {
+            unvalidated::Event::Time(event) => {
+                if let Some(supported_chains) = &self.supported_chains {
+                    let chain_id = event.proof().chain_id().to_owned();
+                    if !supported_chains.contains(&chain_id) {
+                        return Err(anyhow!("event has unsupported chain: {chain_id}"))
+                            .with_model_context(model);
                     }
                 }
-                unvalidated::Event::Signed(event) => {
-                    if self.validate_signatures {
-                        event
-                            .verify_signature(
-                                Some(&event_builder.controller),
-                                &VerifyJwsOpts {
-                                    at_time: AtTime::SkipTimeChecks,
-                                    ..Default::default()
-                                },
-                            )
-                            .await
-                            .with_model_context(model)?;
-                    }
+            }
+            unvalidated::Event::Signed(event) => {
+                if self.validate_signatures {
+                    event
+                        .verify_signature(
+                            Some(&event_builder.controller),
+                            &VerifyJwsOpts {
+                                at_time: AtTime::SkipTimeChecks,
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                        .with_model_context(model)?;
                 }
-                unvalidated::Event::Unsigned(_) => {}
-            };
-            self.batch.push(
-                event_builder
-                    .build(&self.network, event)
-                    .await
-                    .with_model_context(model)?,
-            );
-        }
+            }
+            unvalidated::Event::Unsigned(_) => {}
+        };
+        self.batch.push(
+            event_builder
+                .build(&self.network, event)
+                .await
+                .with_model_context(model)?,
+        );
         Ok(())
     }
 }

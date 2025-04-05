@@ -269,9 +269,3 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
-
-[patch."https://github.com/datafusion-contrib/datafusion-flight-sql-server.git"]
-datafusion-flight-sql-server = { git = "https://github.com/nathanielc/datafusion-flight-sql-server.git", branch = "chore/datafusion-45" }
-
-[patch.crates-io]
-datafusion-federation = { git = "https://github.com/nathanielc/datafusion-federation.git", branch = "chore/datafusion-45" }

@@ -236,7 +236,10 @@ async fn poll_new_events(
             }
             _ = interval.tick() => {}
         };
-        debug!(last_processed_conclusion_event_order, "events since");
+        debug!(
+            last_processed_conclusion_event_order,
+            "polling conclusion events since"
+        );
         let mut events = select! {
             _ = &mut shutdown => {
                 return Ok(());

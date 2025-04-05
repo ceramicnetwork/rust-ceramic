@@ -121,7 +121,7 @@ describe('flight sql', () => {
       schema: {
         type: 'object',
         properties: {
-          test: { type: 'string', maxLength: 10 },
+          test: { type: 'string', maxLength: 100 },
         },
         additionalProperties: false,
       },
@@ -157,7 +157,7 @@ describe('flight sql', () => {
       schema: {
         type: 'object',
         properties: {
-          test: { type: 'string', maxLength: 10 },
+          test: { type: 'string', maxLength: 100 },
         },
         additionalProperties: false,
       },
@@ -186,10 +186,10 @@ describe('flight sql', () => {
     )
 
     let remaining = 4
-    writeNewEvent(ceramicClient, model, 'event a')
-    writeNewEvent(ceramicClient, model, 'event b')
-    writeNewEvent(ceramicClient, model, 'event c')
-    writeNewEvent(ceramicClient, model, 'event d')
+    for (const val of ['a', 'b', 'c', 'd']) {
+      const name = `query event ${val}`
+      await writeNewEvent(ceramicClient, model, name, new Uint8Array([...name].map((c) => c.charCodeAt(0))))
+    }
     // Concurrent with the writes expect we get the events back
     while (remaining > 0) {
       const buffer = await query.next()
@@ -242,10 +242,10 @@ describe('flight sql', () => {
     )
 
     let remaining = 4
-    writeNewEvent(ceramicClient, model, 'event a')
-    writeNewEvent(ceramicClient, model, 'event b')
-    writeNewEvent(ceramicClient, model, 'event c')
-    writeNewEvent(ceramicClient, model, 'event d')
+    for (const val in ['a', 'b', 'c', 'd']) {
+      const name = `prepared event ${val}`
+      writeNewEvent(ceramicClient, model, name, new Uint8Array([...name].map((c) => c.charCodeAt(0))))
+    }
     // Concurrent with the writes expect we get the events back
     while (remaining > 0) {
       const buffer = await query.next()
@@ -265,13 +265,15 @@ describe('flight sql', () => {
     ceramicClient: CeramicClient,
     model: StreamID,
     body: string,
+    unique: Uint8Array | undefined,
   ): Promise<CID> {
     const eventPayload: InitEventPayload = {
-      data: { body },
+      data: { test: body },
       header: {
         controllers: [asDIDString(authenticatedDID.id)],
         model,
         sep: 'model',
+        unique,
       },
     }
     const encodedPayload = InitEventPayload.encode(eventPayload)
