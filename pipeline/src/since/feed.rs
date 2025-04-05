@@ -1,14 +1,15 @@
 use std::{any::Any, sync::Arc};
 
+use arrow::{array::BooleanArray, compute::filter_record_batch};
 use arrow_schema::SchemaRef;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use datafusion::{
     catalog::{Session, TableProvider},
-    common::exec_datafusion_err,
+    common::{exec_datafusion_err, DFSchema},
     datasource::TableType,
     error::DataFusionError,
-    execution::SendableRecordBatchStream,
+    execution::{context::ExecutionProps, SendableRecordBatchStream},
     logical_expr::TableProviderFilterPushDown,
     physical_expr::EquivalenceProperties,
     physical_plan::{
@@ -54,6 +55,25 @@ impl<S> FeedTable<S> {
     pub fn new(source: S) -> Self {
         Self { source }
     }
+
+    // Extract predicates that can be pushed down to the source
+    fn extract_pushdown_predicates(filters: &[Expr]) -> (Option<u64>, Vec<Expr>) {
+        tracing::trace!(?filters, "Extracting pushdown predicates");
+        let mut remaining_filters = Vec::new();
+        let mut highwater_mark = None;
+
+        for filter in filters {
+            if let Some(mark) = Self::highwater_mark_from_expr(filter) {
+                highwater_mark = Some(mark);
+            } else {
+                remaining_filters.push(filter.clone());
+            }
+        }
+
+        tracing::trace!(?highwater_mark, ?remaining_filters, "Extracted predicates");
+        (highwater_mark, remaining_filters)
+    }
+
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
@@ -68,11 +88,14 @@ impl<S> FeedTable<S> {
                 .flatten()
         };
         match expr {
+            // we use >= for the offset later so we don't need to adjust the value here. if we get an extra, we ignore it
             Expr::BinaryExpr(expr) => match expr.op {
-                datafusion::logical_expr::Operator::Gt => {
+                datafusion::logical_expr::Operator::Gt
+                | datafusion::logical_expr::Operator::GtEq => {
                     find_highwater_mark(expr.left.as_ref(), expr.right.as_ref())
                 }
-                datafusion::logical_expr::Operator::LtEq => {
+                datafusion::logical_expr::Operator::LtEq
+                | datafusion::logical_expr::Operator::Lt => {
                     find_highwater_mark(expr.right.as_ref(), expr.left.as_ref())
                 }
                 _ => None,
@@ -108,16 +131,13 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
             .transpose()?
             .map(Arc::new)
             .unwrap_or_else(|| self.schema());
+        let (highwater_mark, remaining_filters) = Self::extract_pushdown_predicates(filters);
         Ok(Arc::new(StreamExec {
             source: self.source.clone(),
             projection: projection.cloned(),
-            offset: filters
-                .iter()
-                .filter_map(Self::highwater_mark_from_expr)
-                .next()
-                .map(|hm| hm as i64)
-                .unwrap_or(0),
+            offset: highwater_mark.map(|hm| hm as i64).unwrap_or(0),
             limit,
+            filters: remaining_filters,
             properties: PlanProperties::new(
                 EquivalenceProperties::new(schema),
                 Partitioning::UnknownPartitioning(1),
@@ -134,13 +154,9 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
     ) -> datafusion::common::Result<Vec<TableProviderFilterPushDown>> {
         Ok(filters
             .iter()
-            .map(|expr| Self::highwater_mark_from_expr(expr))
-            .map(|highwater_mark| {
-                if highwater_mark.is_some() {
-                    TableProviderFilterPushDown::Exact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
+            .map(|expr| match expr {
+                Expr::BinaryExpr(_binary_expr) => TableProviderFilterPushDown::Exact,
+                _ => TableProviderFilterPushDown::Inexact,
             })
             .collect())
     }
@@ -152,6 +168,7 @@ pub struct StreamExec<S> {
     projection: Option<Vec<usize>>,
     offset: i64,
     limit: Option<usize>,
+    filters: Vec<Expr>,
     properties: PlanProperties,
 }
 
@@ -188,9 +205,86 @@ impl<S: FeedTableSource> ExecutionPlan for StreamExec<S> {
         let projection = self.projection.clone();
         let offset = self.offset as u64;
         let limit = self.limit;
+        let filters = self.filters.clone();
+        let schema = self.schema().clone();
+
+        tracing::trace!(?offset, ?limit, ?filters, "Starting stream execution");
+
         let stream = try_stream! {
             let mut stream = source.subscribe_since(projection, Some(offset), limit).await?;
-            while let Some(batch) = stream.try_next().await? {
+
+            let filter_exprs = if !filters.is_empty() {
+                tracing::trace!(?filters, ?schema, "Creating filter expressions");
+                let mut expr_list = Vec::new();
+                if let Ok(df_schema) = DFSchema::try_from(schema.clone()) {
+                    let props = ExecutionProps::new();
+                    for filter in filters {
+                        if let Ok(phys_expr) = datafusion::physical_expr::create_physical_expr(
+                            &filter,
+                            &df_schema,
+                            &props,
+                        ) {
+                            tracing::trace!(?filter, "Created physical expression");
+                            expr_list.push(phys_expr);
+                        } else {
+                            tracing::warn!("Failed to create physical expression: {filter}");
+                        }
+                    }
+                    if expr_list.is_empty() {
+                        tracing::trace!("No valid filter expressions created");
+                        None
+                    } else {
+                        tracing::trace!(expr_count = expr_list.len(), "Created filter expressions");
+                        Some(expr_list)
+                    }
+                } else {
+                    tracing::warn!("Failed to create DFSchema from Arrow schema");
+                    None
+                }
+            } else {
+                None
+            };
+
+            tracing::trace!(?filter_exprs, "Starting to stream stream batches");
+
+            while let Some(mut batch) = stream.try_next().await? {
+                tracing::trace!(
+                    rows = batch.num_rows(),
+                    columns = batch.num_columns(),
+                    "Received batch"
+                );
+
+                // Add filtering details
+                if let Some(exprs) = &filter_exprs {
+                    tracing::trace!(
+                        filter_count = exprs.len(),
+                        "Applying filters to batch"
+                    );
+                    // Evaluate all expressions to get a boolean array
+                    let mut mask = None;
+                    for expr in exprs {
+                        let result = expr.evaluate(&batch)?;
+                        tracing::trace!(?expr, "Evaluating expression");
+                        let bool_array = result.into_array(batch.num_rows())?;
+                        if let Some(array) = bool_array.as_any().downcast_ref::<BooleanArray>() {
+                            mask = match mask {
+                                Some(current_mask) => Some(arrow::compute::and(&current_mask, array)?),
+                                None => Some(array.clone()),
+                            };
+                        } else {
+                            tracing::warn!(?expr, "Expression did not evaluate to boolean array");
+                        }
+                    }
+
+                    if let Some(mask) = mask {
+                        batch = filter_record_batch(&batch, &mask)?;
+                        tracing::trace!(
+                            rows_after_filter = batch.num_rows(),
+                            "Applied filters to batch"
+                        );
+                    }
+                }
+
                 yield batch
             }
         };
