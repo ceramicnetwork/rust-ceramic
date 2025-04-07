@@ -59,7 +59,7 @@ use datafusion::{
         WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{array_empty, cast, when, wildcard, DataFrame, SessionContext},
+    prelude::{array_empty, cast, when, wildcard, DataFrame},
     sql::TableReference,
 };
 use futures::{StreamExt as _, TryStreamExt as _};
@@ -76,7 +76,7 @@ use crate::{
     dimension_extract::dimension_extract,
     metrics::Metrics,
     schemas,
-    since::{rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource},
     stream_id_to_cid::stream_id_to_cid,
     PipelineContext, Result, SessionContextRef,
 };
@@ -838,7 +838,9 @@ async fn concluder_subscription(
     let mut rx = concluder
         .send(SubscribeSinceMsg {
             projection: None,
-            offset,
+            filters: offset
+                .map(|o| vec![gt_expression("conclusion_event_order", o)])
+                .unwrap_or_default(),
             limit: None,
         })
         .await??;
@@ -881,43 +883,44 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
     ) -> <SubscribeSinceMsg as Message>::Result {
         let subscription = self.broadcast_tx.subscribe();
         let ctx = self.ctx.clone();
+
+        // Create base query
+        let mut df = ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .drop_columns(&["event_cid_partition"])? // Do not return the partition columns
+            .select(vec![wildcard()])?
+            .sort(vec![col("event_state_order").sort(true, true)])?;
+
+        for filter in message.filters.clone() {
+            df = df.filter(filter)?;
+        }
+
+        if let Some(limit) = message.limit {
+            df = df.limit(0, Some(limit))?;
+        }
+
+        // Execute query to get initial (historical) results
+        let query_stream = df.execute_stream().await?;
+
+        // Create subscription stream
+        let subscription_stream = RecordBatchStreamAdapter::new(
+            schemas::event_states(),
+            tokio_stream::wrappers::BroadcastStream::new(subscription)
+                .map_err(|err| exec_datafusion_err!("{err}")),
+        );
+
+        // Merge query results with subscription updates
         rows_since(
-            schemas::conclusion_events(),
-            "conclusion_event_order",
+            schemas::event_states(),
+            "event_state_order",
             message.projection,
-            message.offset,
+            message.filters,
             message.limit,
-            Box::pin(RecordBatchStreamAdapter::new(
-                schemas::conclusion_events(),
-                tokio_stream::wrappers::BroadcastStream::new(subscription)
-                    .map_err(|err| exec_datafusion_err!("{err}")),
-            )),
-            // Future Optimization can be to send the projection and limit into the events_since call.
-            events_since(&ctx, message.offset).await?,
+            Box::pin(subscription_stream),
+            query_stream,
         )
     }
-}
-
-async fn events_since(
-    ctx: &SessionContext,
-    offset: Option<u64>,
-) -> Result<SendableRecordBatchStream> {
-    let mut event_states = ctx
-        .table(EVENT_STATES_TABLE)
-        .await?
-        .select(vec![wildcard()])?
-        // Do not return the partition columns
-        .drop_columns(&["event_cid_partition"])?;
-    if let Some(offset) = offset {
-        event_states = event_states.filter(col("conclusion_event_order").gt_eq(lit(offset)))?;
-    }
-    Ok(event_states
-        .sort(vec![
-            col("conclusion_event_order").sort(true, true),
-            col("event_state_order").sort(true, true),
-        ])?
-        .execute_stream()
-        .await?)
 }
 
 /// Inform the aggregator about new conclusion events.
@@ -1119,13 +1122,13 @@ impl FeedTableSource for AggregatorHandle {
     async fn subscribe_since(
         &self,
         projection: Option<Vec<usize>>,
-        offset: Option<u64>,
+        filters: Option<Vec<Expr>>,
         limit: Option<usize>,
     ) -> anyhow::Result<SendableRecordBatchStream> {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                offset,
+                filters: filters.unwrap_or_default(),
                 limit,
             })
             .await??)
@@ -1252,7 +1255,9 @@ mod tests {
         let mut subscription = aggregator
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset,
+                filters: offset
+                    .map(|o| vec![gt_expression("event_state_order", o)])
+                    .unwrap_or_default(),
                 limit: None,
             })
             .await??;
@@ -1560,7 +1565,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: Some(vec![1, 3, 4]),
-                offset: None,
+                filters: vec![],
                 limit: None,
             })
             .await
@@ -1902,7 +1907,7 @@ mod tests {
                 .once()
                 .with(predicate::eq(SubscribeSinceMsg {
                     projection: None,
-                    offset: None,
+                    filters: vec![],
                     limit: None,
                 }))
                 .return_once(|_msg| {
@@ -1941,7 +1946,7 @@ mod tests {
             .once()
             .with(predicate::eq(SubscribeSinceMsg {
                 projection: None,
-                offset: Some(1),
+                filters: vec![gt_expression("conclusion_event_order", 1)],
                 limit: None,
             }))
             .return_once(|_msg| {
@@ -1959,7 +1964,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: vec![],
                 limit: Some(4),
             })
             .await
@@ -1993,7 +1998,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: vec![],
                 limit: Some(2),
             })
             .await

@@ -364,7 +364,7 @@ async fn event_states_simple() -> Result<()> {
         let mut sub = aggregator
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: vec![],
                 // We know there are only four events, query all of them
                 limit: Some(4),
             })

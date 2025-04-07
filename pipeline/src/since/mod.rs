@@ -7,15 +7,21 @@
 mod feed;
 mod metrics;
 
+use std::sync::Arc;
+
 pub use feed::{FeedTable, FeedTableSource};
 
 use arrow::{
-    array::{RecordBatch, UInt64Array},
+    array::{BooleanArray, RecordBatch, UInt64Array},
     compute::{filter_record_batch, kernels::aggregate},
 };
 use arrow_schema::SchemaRef;
 use async_stream::try_stream;
 use ceramic_actor::Message;
+use datafusion::{
+    common::DFSchema, execution::context::ExecutionProps, physical_plan::PhysicalExpr,
+    prelude::Expr,
+};
 use datafusion::{
     common::{cast::as_uint64_array, exec_datafusion_err},
     execution::SendableRecordBatchStream,
@@ -30,8 +36,8 @@ pub struct SubscribeSinceMsg {
     /// Optional set of columns to fetch. Columns are indicated by their index into the schema of
     /// the actor table.
     pub projection: Option<Vec<usize>>,
-    /// Offset into the actor table against the ordering column
-    pub offset: Option<u64>,
+    /// Optional filters to apply to the query (typically will include `sort_column > highwater_mark`)
+    pub filters: Vec<Expr>,
     /// Maxium number of rows to return.
     /// When None the subscription is unbounded and never completes.
     pub limit: Option<usize>,
@@ -48,7 +54,8 @@ impl Message for SubscribeSinceMsg {
 ///     and continuing forever.
 ///
 /// The subscription stream may overlap with the since stream but it must not leave a gap between
-/// them. This function will ensure no duplicate rows are produced.
+/// them. This function will ensure no duplicate rows are produced. Ideally, we'd have the `since` stream
+/// apply the filters, but currently it sources all events and we filter after the fact.
 ///
 /// This method is helpful in implementing [`ceramic_actor::Handler`] for the [`SubscribeSinceMsg`]
 /// on the actor.
@@ -56,7 +63,7 @@ pub fn rows_since(
     schema: SchemaRef,
     order_col: &str,
     projection: Option<Vec<usize>>,
-    mut offset: Option<u64>,
+    filters: Vec<Expr>,
     mut limit: Option<usize>,
     mut subscription: SendableRecordBatchStream,
     mut since: SendableRecordBatchStream,
@@ -65,11 +72,12 @@ pub fn rows_since(
         ?schema,
         ?order_col,
         ?projection,
-        ?offset,
         ?limit,
         "Starting rows_since stream"
     );
+    let mut offset = None;
     let order_col = order_col.to_owned();
+    let schema_cln = schema.clone();
     let stream = try_stream! {
         // Produce existing events
         tracing::trace!("Processing existing events from 'since' stream");
@@ -101,53 +109,72 @@ pub fn rows_since(
             }
         }
 
-        // Produce new events as they arrive
+        let physical_exprs = build_physical_exprs(&filters, schema_cln.clone());
+        // Produce new events as they arrive (make sure to filter before pushing them to caller)
         tracing::trace!("Starting subscription stream processing");
-        while let Some(mut batch) = subscription.try_next().await?{
+        while let Some(mut batch) = subscription.try_next().await? {
             tracing::trace!(
                 rows = batch.num_rows(),
                 ?offset,
                 "Processing batch from subscription stream"
             );
 
-            // Skip any duplicate events that arrived in the overlap between the subscription and
-            // since streams.
+            // Skip any duplicate events by filtering based on last seen value
             if let Some(o) = offset {
                 let order = batch.column_by_name(&order_col).ok_or_else(|| {
                     anyhow::anyhow!("ordering column '{order_col}' should exist on events record batch")
                 })?;
                 // Make sure to get all rows as we can filter them out later if needed
-                let predicate = arrow::compute::kernels::cmp::gt_eq(&order, &UInt64Array::new_scalar(o))?;
+                let predicate = arrow::compute::kernels::cmp::gt(&order, &UInt64Array::new_scalar(o))?;
+                let original_rows = batch.num_rows();
                 batch = filter_record_batch(&batch, &predicate)?;
                 tracing::trace!(
-                    original_rows = batch.num_rows(),
+                    original_rows,
                     filtered_rows = batch.num_rows(),
                     ?o,
-                    "Filtered batch by offset"
+                    "Filtered batch by last seen value"
                 );
                 if batch.num_rows() == 0 {
-                    tracing::trace!("Skipping batch - no rows after offset filter");
-                    // Get the next batch as no rows from the current batch were greater than the
-                    // offset.
                     continue;
                 }
-                // We have at least one row that is past the offset.
-                // Data is ordered so we no longer need to filter based on the
-                // offset.
-                tracing::trace!("Found rows past offset, disabling offset filtering");
+                // Found new data, no need to filter anymore
                 offset = None;
             }
 
             let num_rows = batch.num_rows();
             if num_rows > 0 {
-                let projected_batch = project_limit_batch(&projection, &mut limit, batch)?;
+                if let Some(expr_list) = &physical_exprs {
+                    let mut mask = None;
+                    for expr in expr_list {
+                        let result = expr.evaluate(&batch)?;
+                        tracing::trace!(?expr, "Evaluating expression");
+                        let bool_array = result.into_array(batch.num_rows())?;
+                        if let Some(array) = bool_array.as_any().downcast_ref::<BooleanArray>() {
+                            mask = match mask {
+                                Some(current_mask) => Some(arrow::compute::and(&current_mask, array)?),
+                                None => Some(array.clone()),
+                            };
+                        } else {
+                            tracing::warn!(?expr, "Expression did not evaluate to boolean array");
+                        }
+                    }
+
+                    if let Some(mask) = mask {
+                        batch = filter_record_batch(&batch, &mask)?;
+                        tracing::trace!(
+                            rows_after_filter = batch.num_rows(),
+                            "Applied filters to batch"
+                        );
+                    }
+                }
+                batch = project_limit_batch(&projection, &mut limit, batch)?;
                 tracing::trace!(
                     input_rows = num_rows,
-                    output_rows = projected_batch.num_rows(),
+                    output_rows = batch.num_rows(),
                     ?limit,
                     "Projected and limited batch from subscription stream"
                 );
-                yield projected_batch;
+                yield batch;
                 if let Some(limit) = limit {
                     if limit == 0 {
                         tracing::trace!("Reached row limit in subscription stream");
@@ -160,6 +187,47 @@ pub fn rows_since(
     };
     let stream = stream.map_err(|err: anyhow::Error| exec_datafusion_err!("{err}"));
     Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
+}
+
+/// Create a greater than expression for comparing event orders
+pub(crate) fn gt_expression(order_col: &str, offset: u64) -> Expr {
+    datafusion::prelude::col(order_col).gt(datafusion::prelude::lit(offset))
+}
+
+fn build_physical_exprs(filters: &[Expr], schema: SchemaRef) -> Option<Vec<Arc<dyn PhysicalExpr>>> {
+    if filters.is_empty() {
+        return None;
+    }
+    tracing::trace!(?filters, ?schema, "Creating filter expressions");
+    let df_schema = if let Ok(df_schema) = DFSchema::try_from(schema.clone()) {
+        df_schema
+    } else {
+        tracing::warn!("Failed to create DFSchema from Arrow schema");
+        return None;
+    };
+
+    let mut expr_list = Vec::new();
+    let props = ExecutionProps::new();
+    for filter in filters {
+        if let Ok(phys_expr) =
+            datafusion::physical_expr::create_physical_expr(filter, &df_schema, &props)
+        {
+            tracing::trace!(?filter, "Created physical expression");
+            expr_list.push(phys_expr);
+        } else {
+            tracing::warn!("Failed to create physical expression: {filter}");
+        }
+    }
+    if expr_list.is_empty() {
+        tracing::trace!("No valid filter expressions created");
+        None
+    } else {
+        tracing::trace!(
+            expr_count = expr_list.len(),
+            "Created filter expressions and applying to batch"
+        );
+        Some(expr_list)
+    }
 }
 
 fn project_limit_batch(
