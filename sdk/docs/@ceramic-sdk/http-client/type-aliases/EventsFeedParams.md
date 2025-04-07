@@ -1,4 +1,4 @@
-[**@ceramic-sdk/http-client v0.2.1**](../README.md) • **Docs**
+[**@ceramic-sdk/http-client v0.7.0**](../README.md) • **Docs**
 
 ***
 

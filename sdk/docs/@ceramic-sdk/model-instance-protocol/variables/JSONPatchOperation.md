@@ -1,4 +1,4 @@
-[**@ceramic-sdk/model-instance-protocol v0.2.1**](../README.md) • **Docs**
+[**@ceramic-sdk/model-instance-protocol v0.7.0**](../README.md) • **Docs**
 
 ***
 

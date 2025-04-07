@@ -1,4 +1,4 @@
-[**@ceramic-sdk/model-protocol v0.2.1**](../README.md) • **Docs**
+[**@ceramic-sdk/model-protocol v0.7.0**](../README.md) • **Docs**
 
 ***
 

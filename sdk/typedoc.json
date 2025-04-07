@@ -8,7 +8,6 @@
     "packages/model-client",
     "packages/model-instance-client",
     "packages/model-instance-protocol",
-    "packages/model-instance-handler",
     "packages/model-protocol",
     "packages/stream-client"
   ],

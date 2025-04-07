@@ -1,4 +1,4 @@
-[**@ceramic-sdk/identifiers v0.2.0**](../README.md) • **Docs**
+[**@ceramic-sdk/identifiers v0.7.0**](../README.md) • **Docs**
 
 ***
 
