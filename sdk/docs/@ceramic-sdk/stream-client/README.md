@@ -1,4 +1,4 @@
-**@ceramic-sdk/stream-client v0.2.1** • **Docs**
+**@ceramic-sdk/stream-client v0.7.0** • **Docs**
 
 ***
 

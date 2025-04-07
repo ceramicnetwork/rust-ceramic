@@ -1,4 +1,4 @@
-[**@ceramic-sdk/events v0.2.1**](../README.md) • **Docs**
+[**@ceramic-sdk/events v0.7.0**](../README.md) • **Docs**
 
 ***
 
