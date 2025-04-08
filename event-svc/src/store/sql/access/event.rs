@@ -199,7 +199,7 @@ impl EventAccess {
         I: Iterator<Item = &'a EventInsertable>,
     {
         let mut inserted = Vec::new();
-        let mut tx = self.pool.begin_tx().await.map_err(Error::from)?;
+        let mut tx = self.pool.begin_tx().await?;
 
         for item in to_add {
             let new_key = self
@@ -224,7 +224,7 @@ impl EventAccess {
                 self.mark_ready_to_deliver(&mut tx, item.cid()).await?;
             }
         }
-        tx.commit().await.map_err(Error::from)?;
+        tx.commit().await?;
         let res = InsertResult::new(inserted);
 
         Ok(res)

@@ -293,7 +293,7 @@ async fn get_eth_rpc_providers(
                 let provider_chain = provider.chain_id();
                 if network
                     .supported_chain_ids()
-                    .map_or(true, |ids| ids.contains(provider_chain))
+                    .is_none_or(|ids| ids.contains(provider_chain))
                 {
                     info!(
                         "Using ethereum rpc provider for chain: {} with url: {}",

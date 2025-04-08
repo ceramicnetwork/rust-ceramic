@@ -140,7 +140,7 @@ fn events(start_index: u64, highwater_mark: u64, limit: usize) -> Vec<Conclusion
     };
     vec![
         ConclusionEvent::Data(ConclusionData {
-            order: start_index + 0,
+            order: start_index,
             event_cid: model_stream_id.cid,
             init: ConclusionInit {
                 stream_cid: model_stream_id.cid,

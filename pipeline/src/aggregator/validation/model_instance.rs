@@ -82,6 +82,7 @@ impl ModelInstance {
         }
         let is_unique_empty = unique.map(|u| u.is_empty()).unwrap_or(true);
         // Check unique is set/unset appriopriately
+        // TODO: this doesn't check that set/list/single are VALID for the entire stream
         let account_relation = model.account_relation();
         match account_relation {
             ModelAccountRelation::Single => {

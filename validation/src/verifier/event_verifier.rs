@@ -144,7 +144,7 @@ async fn resolve_did_verify_delegated(issuer: &str, delegated: &str, time: &AtTi
     if controller_did
         .controller
         .as_ref()
-        .map_or(true, |c| !c.any(|c| c == delegated))
+        .is_none_or(|c| !c.any(|c| c == delegated))
     {
         bail!("invalid_jws: '{delegated}' not in controllers list for issuer: '{issuer}'")
     }

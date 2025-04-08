@@ -436,7 +436,6 @@ mod tests {
 
     fn events(start_conclusion_event_order: u64, count: i64) -> Vec<ConclusionEvent> {
         (0..count)
-            .into_iter()
             .map(|i| {
                 // Use the same event data as all we care about is the count and
                 // conclusion_event_order

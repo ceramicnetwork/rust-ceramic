@@ -1296,7 +1296,7 @@ mod tests {
             .collect()
             .await
             .context("collect")?;
-        Ok(pretty_format_batches(&event_states).context("format")?)
+        pretty_format_batches(&event_states).context("format")
     }
     #[derive(Deserialize, Serialize, JsonSchema)]
     #[schemars(rename_all = "camelCase", deny_unknown_fields)]
@@ -1436,7 +1436,7 @@ mod tests {
     }
     // Append a data event to the list of events with the give data that chains off the last event.
     fn append_data(events: &mut Vec<ConclusionEvent>, cid: Cid, data: &str) {
-        let event = chain_data_event(&events, &events[events.len() - 1], cid, data);
+        let event = chain_data_event(events, &events[events.len() - 1], cid, data);
         events.push(event);
     }
     // Append a data event that is an init event for the stream
