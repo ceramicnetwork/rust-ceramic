@@ -37,7 +37,7 @@ pub struct SubscribeSinceMsg {
     /// the actor table.
     pub projection: Option<Vec<usize>>,
     /// Optional filters to apply to the query (typically will include `sort_column > highwater_mark`)
-    pub filters: Vec<Expr>,
+    pub filters: Option<Vec<Expr>>,
     /// Maxium number of rows to return.
     /// When None the subscription is unbounded and never completes.
     pub limit: Option<usize>,
@@ -63,7 +63,7 @@ pub fn rows_since(
     schema: SchemaRef,
     order_col: &str,
     projection: Option<Vec<usize>>,
-    filters: Vec<Expr>,
+    filters: Option<Vec<Expr>>,
     mut limit: Option<usize>,
     mut subscription: SendableRecordBatchStream,
     mut since: SendableRecordBatchStream,
@@ -109,7 +109,11 @@ pub fn rows_since(
             }
         }
 
-        let physical_exprs = build_physical_exprs(&filters, schema_cln.clone());
+        let physical_exprs = if let Some(filters) = &filters {
+            build_physical_exprs(filters, schema_cln.clone())
+        } else {
+            None
+        };
         // Produce new events as they arrive (make sure to filter before pushing them to caller)
         tracing::trace!("Starting subscription stream processing");
         while let Some(mut batch) = subscription.try_next().await? {

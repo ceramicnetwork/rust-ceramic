@@ -838,9 +838,7 @@ async fn concluder_subscription(
     let mut rx = concluder
         .send(SubscribeSinceMsg {
             projection: None,
-            filters: offset
-                .map(|o| vec![gt_expression("conclusion_event_order", o)])
-                .unwrap_or_default(),
+            filters: offset.map(|o| vec![gt_expression("conclusion_event_order", o)]),
             limit: None,
         })
         .await??;
@@ -892,8 +890,10 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
             .select(vec![wildcard()])?
             .sort(vec![col("event_state_order").sort(true, true)])?;
 
-        for filter in message.filters.clone() {
-            df = df.filter(filter)?;
+        if let Some(filters) = &message.filters {
+            for filter in filters.clone() {
+                df = df.filter(filter)?;
+            }
         }
 
         if let Some(limit) = message.limit {
@@ -1128,7 +1128,7 @@ impl FeedTableSource for AggregatorHandle {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                filters: filters.unwrap_or_default(),
+                filters,
                 limit,
             })
             .await??)
@@ -1255,9 +1255,7 @@ mod tests {
         let mut subscription = aggregator
             .send(SubscribeSinceMsg {
                 projection: None,
-                filters: offset
-                    .map(|o| vec![gt_expression("event_state_order", o)])
-                    .unwrap_or_default(),
+                filters: offset.map(|o| vec![gt_expression("event_state_order", o)]),
                 limit: None,
             })
             .await??;
@@ -1565,7 +1563,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: Some(vec![1, 3, 4]),
-                filters: vec![],
+                filters: None,
                 limit: None,
             })
             .await
@@ -1907,7 +1905,7 @@ mod tests {
                 .once()
                 .with(predicate::eq(SubscribeSinceMsg {
                     projection: None,
-                    filters: vec![],
+                    filters: None,
                     limit: None,
                 }))
                 .return_once(|_msg| {
@@ -1946,7 +1944,7 @@ mod tests {
             .once()
             .with(predicate::eq(SubscribeSinceMsg {
                 projection: None,
-                filters: vec![gt_expression("conclusion_event_order", 1)],
+                filters: Some(vec![gt_expression("conclusion_event_order", 1)]),
                 limit: None,
             }))
             .return_once(|_msg| {
@@ -1964,7 +1962,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                filters: vec![],
+                filters: None,
                 limit: Some(4),
             })
             .await
@@ -1998,7 +1996,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                filters: vec![],
+                filters: None,
                 limit: Some(2),
             })
             .await

@@ -252,7 +252,7 @@ async fn poll_new_events(
                 return Ok(());
             },
             events =
-                events_since(&ctx, filters, None) => {events?}
+                events_since(&ctx, Some(filters), None) => {events?}
         };
         // Consume stream of events since last processed.
         loop {
@@ -306,7 +306,7 @@ async fn poll_new_events(
 
 async fn events_since(
     ctx: &SessionContext,
-    filters: Vec<Expr>,
+    filters: Option<Vec<Expr>>,
     limit: Option<usize>,
 ) -> Result<SendableRecordBatchStream> {
     let mut conclusion_events = ctx
@@ -315,8 +315,10 @@ async fn events_since(
         .select(vec![wildcard()])?
         .sort(vec![col("conclusion_event_order").sort(true, true)])?;
 
-    for filter in filters {
-        conclusion_events = conclusion_events.filter(filter)?;
+    if let Some(filters) = &filters {
+        for filter in filters.clone() {
+            conclusion_events = conclusion_events.filter(filter)?;
+        }
     }
 
     if let Some(limit) = limit {
@@ -339,7 +341,7 @@ impl Message for EventsSinceMsg {
 #[async_trait]
 impl Handler<EventsSinceMsg> for Concluder {
     async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, message.filters, None).await
+        events_since(&self.ctx, Some(message.filters), None).await
     }
 }
 
@@ -357,7 +359,7 @@ impl FeedTableSource for ConcluderHandle {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                filters: filters.unwrap_or_default(),
+                filters,
                 limit,
             })
             .await??)
@@ -505,7 +507,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                filters: vec![],
+                filters: None,
                 limit: Some(3),
             })
             .await
