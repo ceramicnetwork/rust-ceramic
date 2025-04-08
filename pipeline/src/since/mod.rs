@@ -109,11 +109,8 @@ pub fn rows_since(
             }
         }
 
-        let physical_exprs = if let Some(filters) = &filters {
-            build_physical_exprs(filters, schema_cln.clone())
-        } else {
-            None
-        };
+        let physical_exprs = filters.as_ref().map(|filters| build_physical_exprs(filters, schema_cln.clone())).transpose()?.flatten();
+
         // Produce new events as they arrive (make sure to filter before pushing them to caller)
         tracing::trace!("Starting subscription stream processing");
         while let Some(mut batch) = subscription.try_next().await? {
@@ -159,7 +156,7 @@ pub fn rows_since(
                                 None => Some(array.clone()),
                             };
                         } else {
-                            tracing::warn!(?expr, "Expression did not evaluate to boolean array");
+                            Err(anyhow::anyhow!("Failed to evaluate expression as it did not evaluate to boolean array: {}", expr))?;
                         }
                     }
 
@@ -198,40 +195,44 @@ pub(crate) fn gt_expression(order_col: &str, offset: u64) -> Expr {
     datafusion::prelude::col(order_col).gt(datafusion::prelude::lit(offset))
 }
 
-fn build_physical_exprs(filters: &[Expr], schema: SchemaRef) -> Option<Vec<Arc<dyn PhysicalExpr>>> {
+fn build_physical_exprs(
+    filters: &[Expr],
+    schema: SchemaRef,
+) -> anyhow::Result<Option<Vec<Arc<dyn PhysicalExpr>>>> {
     if filters.is_empty() {
-        return None;
+        return Ok(None);
     }
     tracing::trace!(?filters, ?schema, "Creating filter expressions");
-    let df_schema = if let Ok(df_schema) = DFSchema::try_from(schema.clone()) {
-        df_schema
-    } else {
-        tracing::warn!("Failed to create DFSchema from Arrow schema");
-        return None;
+    let df_schema = match DFSchema::try_from(schema.clone()) {
+        Ok(df_schema) => df_schema,
+        Err(e) => {
+            tracing::warn!(error = ?e, "Failed to create DFSchema from Arrow schema");
+            anyhow::bail!("Failed to create DFSchema from Arrow schema: {e}");
+        }
     };
 
     let mut expr_list = Vec::new();
     let props = ExecutionProps::new();
     for filter in filters {
-        if let Ok(phys_expr) =
-            datafusion::physical_expr::create_physical_expr(filter, &df_schema, &props)
-        {
-            tracing::trace!(?filter, "Created physical expression");
-            expr_list.push(phys_expr);
-        } else {
-            tracing::warn!("Failed to create physical expression: {filter}");
+        match datafusion::physical_expr::create_physical_expr(filter, &df_schema, &props) {
+            Ok(phys_expr) => {
+                tracing::trace!(?filter, "Created physical expression");
+                expr_list.push(phys_expr);
+            }
+            Err(e) => {
+                tracing::info!(?filter, error=?e, "Failed to create physical expression");
+                anyhow::bail!(
+                    "Failed to create physical expression for filter: {filter}. Error: {e}"
+                );
+            }
         }
     }
-    if expr_list.is_empty() {
-        tracing::trace!("No valid filter expressions created");
-        None
-    } else {
-        tracing::trace!(
-            expr_count = expr_list.len(),
-            "Created filter expressions and applying to batch"
-        );
-        Some(expr_list)
-    }
+
+    tracing::trace!(
+        expr_count = expr_list.len(),
+        "Created filter expressions and applying to batch"
+    );
+    Ok(Some(expr_list))
 }
 
 fn project_limit_batch(
