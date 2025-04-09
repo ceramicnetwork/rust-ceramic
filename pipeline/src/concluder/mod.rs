@@ -210,6 +210,7 @@ impl Handler<SubscribeSinceMsg> for Concluder {
 
         // Merge query results with subscription updates
         rows_since(
+            &ctx,
             schemas::conclusion_events(),
             "conclusion_event_order",
             message.projection,

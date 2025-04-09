@@ -912,6 +912,7 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
 
         // Merge query results with subscription updates
         rows_since(
+            &ctx,
             schemas::event_states(),
             "event_state_order",
             message.projection,

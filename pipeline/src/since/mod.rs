@@ -19,8 +19,10 @@ use arrow_schema::SchemaRef;
 use async_stream::try_stream;
 use ceramic_actor::Message;
 use datafusion::{
-    common::DFSchema, execution::context::ExecutionProps, physical_plan::PhysicalExpr,
-    prelude::Expr,
+    common::DFSchema,
+    execution::context::ExecutionProps,
+    physical_plan::PhysicalExpr,
+    prelude::{Expr, SessionContext},
 };
 use datafusion::{
     common::{cast::as_uint64_array, exec_datafusion_err},
@@ -60,6 +62,7 @@ impl Message for SubscribeSinceMsg {
 /// This method is helpful in implementing [`ceramic_actor::Handler`] for the [`SubscribeSinceMsg`]
 /// on the actor.
 pub fn rows_since(
+    session_context: &SessionContext,
     schema: SchemaRef,
     order_col: &str,
     projection: Option<Vec<usize>>,
@@ -78,6 +81,7 @@ pub fn rows_since(
     let mut offset = None;
     let order_col = order_col.to_owned();
     let schema_cln = schema.clone();
+    let execution_props = session_context.state().execution_props().to_owned();
     let stream = try_stream! {
         // Produce existing events
         tracing::trace!("Processing existing events from 'since' stream");
@@ -109,7 +113,7 @@ pub fn rows_since(
             }
         }
 
-        let physical_exprs = filters.as_ref().map(|filters| build_physical_exprs(filters, schema_cln.clone())).transpose()?.flatten();
+        let physical_exprs = filters.as_ref().map(|filters| build_physical_exprs(filters, schema_cln.clone(), &execution_props)).transpose()?.flatten();
 
         // Produce new events as they arrive (make sure to filter before pushing them to caller)
         tracing::trace!("Starting subscription stream processing");
@@ -198,6 +202,7 @@ pub(crate) fn gt_expression(order_col: &str, offset: u64) -> Expr {
 fn build_physical_exprs(
     filters: &[Expr],
     schema: SchemaRef,
+    props: &ExecutionProps,
 ) -> anyhow::Result<Option<Vec<Arc<dyn PhysicalExpr>>>> {
     if filters.is_empty() {
         return Ok(None);
@@ -212,7 +217,6 @@ fn build_physical_exprs(
     };
 
     let mut expr_list = Vec::new();
-    let props = ExecutionProps::new();
     for filter in filters {
         match datafusion::physical_expr::create_physical_expr(filter, &df_schema, &props) {
             Ok(phys_expr) => {
