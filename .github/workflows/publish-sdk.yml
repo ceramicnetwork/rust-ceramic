@@ -136,17 +136,7 @@ jobs:
           if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore(sdk): version v') ]]; then
             npm config set provenance true
             echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            for p in $(pwd)/packages/*
-            do
-              cd $p
-              # Check if package is private
-              if grep -q '"private":\s*true' package.json; then
-                echo "Skipping private package: $(basename $p)"
-              else
-                echo "Publishing package: $(basename $p)"
-                npm publish --access public
-              fi
-            done
+            pnpm publish -r --access public
           else
             echo 'Not an sdk release commit, skipping...'
           fi
