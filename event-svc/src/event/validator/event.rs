@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
-use ceramic_validation::eth_rpc;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 
+use crate::blockchain::eth_rpc;
 use crate::event::validator::ChainInclusionProvider;
 use crate::store::EventAccess;
 use crate::{
