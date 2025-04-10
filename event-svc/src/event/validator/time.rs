@@ -5,7 +5,7 @@ use ceramic_core::ssi::caip2;
 use ceramic_event::unvalidated;
 use tracing::warn;
 
-use ceramic_validation::eth_rpc::{self, ChainInclusion, HttpEthRpc};
+use crate::blockchain::eth_rpc::{self, ChainInclusion, HttpEthRpc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Timestamp(u64);
