@@ -59,7 +59,7 @@ use datafusion::{
         WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{array_empty, cast, when, wildcard, DataFrame, SessionContext},
+    prelude::{array_empty, cast, when, wildcard, DataFrame},
     sql::TableReference,
 };
 use futures::{StreamExt as _, TryStreamExt as _};
@@ -76,7 +76,7 @@ use crate::{
     dimension_extract::dimension_extract,
     metrics::Metrics,
     schemas,
-    since::{rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource, RowsSinceInput},
     stream_id_to_cid::stream_id_to_cid,
     PipelineContext, Result, SessionContextRef,
 };
@@ -107,7 +107,7 @@ pub struct Aggregator {
     ctx: SessionContextRef,
     broadcast_tx: broadcast::Sender<RecordBatch>,
     max_cached_rows: usize,
-    order: u64,
+    max_event_state_order: u64,
     object_store: Arc<dyn ObjectStore>,
 }
 
@@ -232,7 +232,7 @@ impl Aggregator {
             ctx: ctx.session(),
             broadcast_tx,
             max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
-            order: max_event_state_order.unwrap_or_default(),
+            max_event_state_order: max_event_state_order.unwrap_or_default(),
             object_store: ctx.object_store.clone(),
         };
 
@@ -733,8 +733,8 @@ impl Aggregator {
             )]);
         }
 
-        let start = self.order;
-        self.order += row_count as u64;
+        let start_event_state = self.max_event_state_order;
+        self.max_event_state_order += row_count as u64;
         // Assign an insertion order value to the new event state rows
         let ordered = event_states
             .window(vec![row_number()
@@ -755,7 +755,7 @@ impl Aggregator {
             .select(vec![
                 col("conclusion_event_order"),
                 // Compute new order value for the event_states table
-                (col("row_num") + lit(start)).alias("event_state_order"),
+                (col("row_num") + lit(start_event_state)).alias("event_state_order"),
                 col("stream_cid"),
                 col("stream_type"),
                 col("controller"),
@@ -838,7 +838,7 @@ async fn concluder_subscription(
     let mut rx = concluder
         .send(SubscribeSinceMsg {
             projection: None,
-            offset,
+            filters: offset.map(|o| vec![gt_expression("conclusion_event_order", o)]),
             limit: None,
         })
         .await??;
@@ -881,40 +881,47 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
     ) -> <SubscribeSinceMsg as Message>::Result {
         let subscription = self.broadcast_tx.subscribe();
         let ctx = self.ctx.clone();
-        rows_since(
-            schemas::conclusion_events(),
-            "event_state_order",
-            message.projection,
-            message.offset,
-            message.limit,
-            Box::pin(RecordBatchStreamAdapter::new(
-                schemas::conclusion_events(),
-                tokio_stream::wrappers::BroadcastStream::new(subscription)
-                    .map_err(|err| exec_datafusion_err!("{err}")),
-            )),
-            // Future Optimization can be to send the projection and limit into the events_since call.
-            events_since(&ctx, message.offset).await?,
-        )
-    }
-}
 
-async fn events_since(
-    ctx: &SessionContext,
-    offset: Option<u64>,
-) -> Result<SendableRecordBatchStream> {
-    let mut event_states = ctx
-        .table(EVENT_STATES_TABLE)
-        .await?
-        .select(vec![wildcard()])?
-        // Do not return the partition columns
-        .drop_columns(&["event_cid_partition"])?;
-    if let Some(offset) = offset {
-        event_states = event_states.filter(col("event_state_order").gt(lit(offset)))?;
+        // Create base query
+        let mut df = ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .drop_columns(&["event_cid_partition"])? // Do not return the partition columns
+            .select(vec![wildcard()])?
+            .sort(vec![col("event_state_order").sort(true, true)])?;
+
+        if let Some(filters) = &message.filters {
+            for filter in filters.clone() {
+                df = df.filter(filter)?;
+            }
+        }
+
+        if let Some(limit) = message.limit {
+            df = df.limit(0, Some(limit))?;
+        }
+
+        // Execute query to get initial (historical) results
+        let query_stream = df.execute_stream().await?;
+
+        // Create subscription stream
+        let subscription_stream = RecordBatchStreamAdapter::new(
+            schemas::event_states(),
+            tokio_stream::wrappers::BroadcastStream::new(subscription)
+                .map_err(|err| exec_datafusion_err!("{err}")),
+        );
+
+        // Merge query results with subscription updates
+        rows_since(RowsSinceInput {
+            session_context: &ctx,
+            schema: schemas::event_states(),
+            order_col: "event_state_order",
+            projection: message.projection,
+            filters: message.filters,
+            limit: message.limit,
+            subscription: Box::pin(subscription_stream),
+            since: query_stream,
+        })
     }
-    Ok(event_states
-        .sort(vec![col("event_state_order").sort(true, true)])?
-        .execute_stream()
-        .await?)
 }
 
 /// Inform the aggregator about new conclusion events.
@@ -1116,13 +1123,13 @@ impl FeedTableSource for AggregatorHandle {
     async fn subscribe_since(
         &self,
         projection: Option<Vec<usize>>,
-        offset: Option<u64>,
+        filters: Option<Vec<Expr>>,
         limit: Option<usize>,
     ) -> anyhow::Result<SendableRecordBatchStream> {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                offset,
+                filters,
                 limit,
             })
             .await??)
@@ -1249,7 +1256,7 @@ mod tests {
         let mut subscription = aggregator
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset,
+                filters: offset.map(|o| vec![gt_expression("event_state_order", o)]),
                 limit: None,
             })
             .await??;
@@ -1290,7 +1297,7 @@ mod tests {
             .collect()
             .await
             .context("collect")?;
-        Ok(pretty_format_batches(&event_states).context("format")?)
+        pretty_format_batches(&event_states).context("format")
     }
     #[derive(Deserialize, Serialize, JsonSchema)]
     #[schemars(rename_all = "camelCase", deny_unknown_fields)]
@@ -1430,7 +1437,7 @@ mod tests {
     }
     // Append a data event to the list of events with the give data that chains off the last event.
     fn append_data(events: &mut Vec<ConclusionEvent>, cid: Cid, data: &str) {
-        let event = chain_data_event(&events, &events[events.len() - 1], cid, data);
+        let event = chain_data_event(events, &events[events.len() - 1], cid, data);
         events.push(event);
     }
     // Append a data event that is an init event for the stream
@@ -1557,7 +1564,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: Some(vec![1, 3, 4]),
-                offset: None,
+                filters: None,
                 limit: None,
             })
             .await
@@ -1899,7 +1906,7 @@ mod tests {
                 .once()
                 .with(predicate::eq(SubscribeSinceMsg {
                     projection: None,
-                    offset: None,
+                    filters: None,
                     limit: None,
                 }))
                 .return_once(|_msg| {
@@ -1938,7 +1945,7 @@ mod tests {
             .once()
             .with(predicate::eq(SubscribeSinceMsg {
                 projection: None,
-                offset: Some(1),
+                filters: Some(vec![gt_expression("conclusion_event_order", 1)]),
                 limit: None,
             }))
             .return_once(|_msg| {
@@ -1956,7 +1963,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: None,
                 limit: Some(4),
             })
             .await
@@ -1990,7 +1997,7 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: None,
                 limit: Some(2),
             })
             .await

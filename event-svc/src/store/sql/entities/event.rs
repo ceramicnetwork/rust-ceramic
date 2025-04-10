@@ -149,8 +149,7 @@ impl EventInsertable {
         let mut idx = 0;
         let mut blocks = vec![];
         while let Some((cid, data)) = reader.next_block().await.map_err(Error::new_app)? {
-            let ebr = EventBlockRaw::try_new(&self.cid, idx, roots.contains(&cid), cid, data)
-                .map_err(Error::from)?;
+            let ebr = EventBlockRaw::try_new(&self.cid, idx, roots.contains(&cid), cid, data)?;
             blocks.push(ebr);
             idx += 1;
         }

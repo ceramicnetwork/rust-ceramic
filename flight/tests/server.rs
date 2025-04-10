@@ -140,7 +140,7 @@ fn events(start_index: u64, highwater_mark: u64, limit: usize) -> Vec<Conclusion
     };
     vec![
         ConclusionEvent::Data(ConclusionData {
-            order: start_index + 0,
+            order: start_index,
             event_cid: model_stream_id.cid,
             init: ConclusionInit {
                 stream_cid: model_stream_id.cid,
@@ -364,7 +364,7 @@ async fn event_states_simple() -> Result<()> {
         let mut sub = aggregator
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: None,
                 // We know there are only four events, query all of them
                 limit: Some(4),
             })

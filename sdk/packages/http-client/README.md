@@ -10,7 +10,7 @@ npm install @ceramic-sdk/http-client
 
 ## Documentation
 
-[API reference](https://github.com/ceramicstudio/ceramic-sdk/tree/main/docs/@ceramic-sdk/http-client)
+[API reference](https://github.com/ceramicnetwork/rust-ceramic/tree/main/sdk/docs/@ceramic-sdk/http-client)
 
 ## License
 

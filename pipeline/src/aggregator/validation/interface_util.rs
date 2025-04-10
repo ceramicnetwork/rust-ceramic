@@ -48,7 +48,7 @@ impl InterfaceUtil {
         implemented: &ModelRelationsDefinitionV2,
     ) -> bool {
         expected.iter().all(|(key, expected_value)| {
-            implemented.get(key).map_or(false, |implemented_value| {
+            implemented.get(key).is_some_and(|implemented_value| {
                 Self::relations_match(implemented_value, expected_value)
             })
         })
@@ -61,7 +61,7 @@ impl InterfaceUtil {
         implemented: &ModelViewsDefinitionV2,
     ) -> bool {
         expected.iter().all(|(key, expected_value)| {
-            implemented.get(key).map_or(false, |implemented_value| {
+            implemented.get(key).is_some_and(|implemented_value| {
                 Self::views_match(implemented_value, expected_value)
             })
         })
@@ -102,7 +102,7 @@ impl InterfaceUtil {
                 // TODO: If expected is None, it means we don't care about the model field, right? Or does it have to be None in both?
                 expected_model
                     .as_ref()
-                    .map_or(true, |exp_id| impl_model.as_ref() == Some(exp_id))
+                    .is_none_or(|exp_id| impl_model.as_ref() == Some(exp_id))
             }
             (a, b) => a == b,
         }
@@ -125,9 +125,9 @@ impl InterfaceUtil {
                     ) => {
                         // TODO: If expected is None, it means we don't care about the model field?
                         impl_prop == expected_prop
-                            && expected_model.as_ref().map_or(true, |expected_id| {
-                                impl_model.as_ref() == Some(expected_id)
-                            })
+                            && expected_model
+                                .as_ref()
+                                .is_none_or(|expected_id| impl_model.as_ref() == Some(expected_id))
                     }
                     // for everything else, we can just check if they're equal as there's no optional subtyping
                     (imp, exp) => imp == exp,

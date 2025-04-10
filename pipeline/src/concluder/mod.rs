@@ -18,7 +18,7 @@ use datafusion::{
     common::{cast::as_uint64_array, exec_datafusion_err},
     execution::SendableRecordBatchStream,
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{col, lit, wildcard, SessionContext},
+    prelude::{col, wildcard, Expr, SessionContext},
 };
 use futures::TryStreamExt as _;
 use shutdown::{Shutdown, ShutdownSignal};
@@ -34,7 +34,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     metrics::Metrics,
     schemas,
-    since::{rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource, RowsSinceInput},
     ConclusionFeedSource, PipelineContext, Result, SessionContextRef,
 };
 
@@ -200,20 +200,25 @@ impl Handler<SubscribeSinceMsg> for Concluder {
     ) -> <SubscribeSinceMsg as Message>::Result {
         let subscription = self.broadcast_tx.subscribe();
         let ctx = self.ctx.clone();
-        rows_since(
+
+        // Create subscription stream
+        let subscription_stream = RecordBatchStreamAdapter::new(
             schemas::conclusion_events(),
-            "conclusion_event_order",
-            message.projection,
-            message.offset,
-            message.limit,
-            Box::pin(RecordBatchStreamAdapter::new(
-                schemas::conclusion_events(),
-                tokio_stream::wrappers::BroadcastStream::new(subscription)
-                    .map_err(|err| exec_datafusion_err!("{err}")),
-            )),
-            // Future Optimization can be to send the projection into the events_since call.
-            events_since(&ctx, message.offset).await?,
-        )
+            tokio_stream::wrappers::BroadcastStream::new(subscription)
+                .map_err(|err| exec_datafusion_err!("{err}")),
+        );
+
+        // Merge query results with subscription updates
+        rows_since(RowsSinceInput {
+            session_context: &ctx,
+            schema: schemas::conclusion_events(),
+            order_col: "conclusion_event_order",
+            projection: message.projection,
+            filters: message.filters.clone(),
+            limit: message.limit,
+            subscription: Box::pin(subscription_stream),
+            since: events_since(&ctx, message.filters, message.limit).await?,
+        })
     }
 }
 
@@ -236,12 +241,19 @@ async fn poll_new_events(
             }
             _ = interval.tick() => {}
         };
-        debug!(last_processed_conclusion_event_order, "events since");
+        debug!(
+            last_processed_conclusion_event_order,
+            "polling conclusion events since"
+        );
+        let filters = last_processed_conclusion_event_order
+            .map(|o| vec![gt_expression("conclusion_event_order", o)])
+            .unwrap_or_default();
         let mut events = select! {
             _ = &mut shutdown => {
                 return Ok(());
             },
-            events = events_since(&ctx, last_processed_conclusion_event_order) => {events?}
+            events =
+                events_since(&ctx, Some(filters), None) => {events?}
         };
         // Consume stream of events since last processed.
         loop {
@@ -295,25 +307,33 @@ async fn poll_new_events(
 
 async fn events_since(
     ctx: &SessionContext,
-    offset: Option<u64>,
+    filters: Option<Vec<Expr>>,
+    limit: Option<usize>,
 ) -> Result<SendableRecordBatchStream> {
-    // Fetch the conclusion events DataFrame
     let mut conclusion_events = ctx
         .table(CONCLUSION_EVENTS_TABLE)
         .await?
-        .select(vec![wildcard()])?;
-    if let Some(offset) = offset {
-        conclusion_events =
-            conclusion_events.filter(col("conclusion_event_order").gt(lit(offset)))?;
+        .select(vec![wildcard()])?
+        .sort(vec![col("conclusion_event_order").sort(true, true)])?;
+
+    if let Some(filters) = &filters {
+        for filter in filters.clone() {
+            conclusion_events = conclusion_events.filter(filter)?;
+        }
     }
+
+    if let Some(limit) = limit {
+        conclusion_events = conclusion_events.limit(0, Some(limit))?;
+    }
+
     Ok(conclusion_events.execute_stream().await?)
 }
 
 /// Request the events since a highwater mark
 #[derive(Debug)]
 pub struct EventsSinceMsg {
-    /// Produce message with an conclusion_event_order greater than the highwater_mark.
-    pub highwater_mark: u64,
+    /// Optional filters to apply to the query
+    pub filters: Vec<Expr>,
 }
 impl Message for EventsSinceMsg {
     type Result = anyhow::Result<SendableRecordBatchStream>;
@@ -322,7 +342,7 @@ impl Message for EventsSinceMsg {
 #[async_trait]
 impl Handler<EventsSinceMsg> for Concluder {
     async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, Some(message.highwater_mark)).await
+        events_since(&self.ctx, Some(message.filters), None).await
     }
 }
 
@@ -334,13 +354,13 @@ impl FeedTableSource for ConcluderHandle {
     async fn subscribe_since(
         &self,
         projection: Option<Vec<usize>>,
-        offset: Option<u64>,
+        filters: Option<Vec<Expr>>,
         limit: Option<usize>,
     ) -> anyhow::Result<SendableRecordBatchStream> {
         Ok(self
             .send(SubscribeSinceMsg {
                 projection,
-                offset,
+                filters,
                 limit,
             })
             .await??)
@@ -488,14 +508,14 @@ mod tests {
             .actor_handle
             .send(SubscribeSinceMsg {
                 projection: None,
-                offset: None,
+                filters: None,
                 limit: Some(3),
             })
             .await
             .unwrap()
             .unwrap();
         // Read subscription so we know when the events have been processed
-        while let Some(_) = subscription.try_next().await.unwrap() {}
+        while subscription.try_next().await.unwrap().is_some() {}
         // Shutdown ensures the mock expectations have been met
         ctx.shutdown().await.unwrap();
     }
