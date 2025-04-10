@@ -48,6 +48,26 @@ impl Message for SubscribeSinceMsg {
     type Result = anyhow::Result<SendableRecordBatchStream>;
 }
 
+/// Input parameters for the `rows_since` function.
+pub(crate) struct RowsSinceInput<'a> {
+    /// Session context for query execution
+    pub session_context: &'a SessionContext,
+    /// Schema for the record batches
+    pub schema: SchemaRef,
+    /// Column used for ordering records
+    pub order_col: &'a str,
+    /// Optional set of columns to fetch by index
+    pub projection: Option<Vec<usize>>,
+    /// Optional filters to apply
+    pub filters: Option<Vec<Expr>>,
+    /// Maximum number of rows to return
+    pub limit: Option<usize>,
+    /// Unbounded stream of subscription updates
+    pub subscription: SendableRecordBatchStream,
+    /// Finite stream of existing rows since the offset
+    pub since: SendableRecordBatchStream,
+}
+
 /// Construct a stream of rows since the offset.
 ///
 /// Two streams must be provided to this function:
@@ -61,16 +81,17 @@ impl Message for SubscribeSinceMsg {
 ///
 /// This method is helpful in implementing [`ceramic_actor::Handler`] for the [`SubscribeSinceMsg`]
 /// on the actor.
-pub fn rows_since(
-    session_context: &SessionContext,
-    schema: SchemaRef,
-    order_col: &str,
-    projection: Option<Vec<usize>>,
-    filters: Option<Vec<Expr>>,
-    mut limit: Option<usize>,
-    mut subscription: SendableRecordBatchStream,
-    mut since: SendableRecordBatchStream,
-) -> anyhow::Result<SendableRecordBatchStream> {
+pub fn rows_since(input: RowsSinceInput<'_>) -> anyhow::Result<SendableRecordBatchStream> {
+    let RowsSinceInput {
+        session_context,
+        schema,
+        order_col,
+        projection,
+        filters,
+        mut limit,
+        mut subscription,
+        mut since,
+    } = input;
     tracing::trace!(
         ?schema,
         ?order_col,
@@ -218,7 +239,7 @@ fn build_physical_exprs(
 
     let mut expr_list = Vec::new();
     for filter in filters {
-        match datafusion::physical_expr::create_physical_expr(filter, &df_schema, &props) {
+        match datafusion::physical_expr::create_physical_expr(filter, &df_schema, props) {
             Ok(phys_expr) => {
                 tracing::trace!(?filter, "Created physical expression");
                 expr_list.push(phys_expr);

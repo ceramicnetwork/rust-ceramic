@@ -76,7 +76,7 @@ use crate::{
     dimension_extract::dimension_extract,
     metrics::Metrics,
     schemas,
-    since::{gt_expression, rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource, RowsSinceInput},
     stream_id_to_cid::stream_id_to_cid,
     PipelineContext, Result, SessionContextRef,
 };
@@ -911,16 +911,16 @@ impl Handler<SubscribeSinceMsg> for Aggregator {
         );
 
         // Merge query results with subscription updates
-        rows_since(
-            &ctx,
-            schemas::event_states(),
-            "event_state_order",
-            message.projection,
-            message.filters,
-            message.limit,
-            Box::pin(subscription_stream),
-            query_stream,
-        )
+        rows_since(RowsSinceInput {
+            session_context: &ctx,
+            schema: schemas::event_states(),
+            order_col: "event_state_order",
+            projection: message.projection,
+            filters: message.filters,
+            limit: message.limit,
+            subscription: Box::pin(subscription_stream),
+            since: query_stream,
+        })
     }
 }
 

@@ -34,7 +34,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     metrics::Metrics,
     schemas,
-    since::{gt_expression, rows_since, FeedTable, FeedTableSource},
+    since::{gt_expression, rows_since, FeedTable, FeedTableSource, RowsSinceInput},
     ConclusionFeedSource, PipelineContext, Result, SessionContextRef,
 };
 
@@ -209,16 +209,16 @@ impl Handler<SubscribeSinceMsg> for Concluder {
         );
 
         // Merge query results with subscription updates
-        rows_since(
-            &ctx,
-            schemas::conclusion_events(),
-            "conclusion_event_order",
-            message.projection,
-            message.filters.clone(),
-            message.limit,
-            Box::pin(subscription_stream),
-            events_since(&ctx, message.filters, message.limit).await?,
-        )
+        rows_since(RowsSinceInput {
+            session_context: &ctx,
+            schema: schemas::conclusion_events(),
+            order_col: "conclusion_event_order",
+            projection: message.projection,
+            filters: message.filters.clone(),
+            limit: message.limit,
+            subscription: Box::pin(subscription_stream),
+            since: events_since(&ctx, message.filters, message.limit).await?,
+        })
     }
 }
 
@@ -515,7 +515,7 @@ mod tests {
             .unwrap()
             .unwrap();
         // Read subscription so we know when the events have been processed
-        while let Some(_) = subscription.try_next().await.unwrap() {}
+        while subscription.try_next().await.unwrap().is_some() {}
         // Shutdown ensures the mock expectations have been met
         ctx.shutdown().await.unwrap();
     }
