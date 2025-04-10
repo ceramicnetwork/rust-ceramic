@@ -74,7 +74,7 @@ impl<T> ConclusionFeedTable<T> {
     fn with_batch_size(self, batch_size: i64) -> Self {
         Self { batch_size, ..self }
     }
-    // TODO
+
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
