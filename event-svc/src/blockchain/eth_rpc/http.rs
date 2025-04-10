@@ -60,7 +60,6 @@ const BLOCK_CACHE_SIZE: usize = 50;
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug)]
 /// Http client to interact with EIP chains
 pub struct HttpEthRpc {
     chain_id: caip2::ChainId,
