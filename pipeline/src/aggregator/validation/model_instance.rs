@@ -145,7 +145,7 @@ impl ModelInstance {
                     String::from_utf8_lossy(unique.expect("unique asserted not null above"));
 
                 if unique_content != unique_str {
-                    fail!("Unique content fields value does not match metadata. If you are trying to change the value of these fields, this is causing this error: these fields values are not mutable.");
+                    fail!("Unique content fields value does not match metadata. Expected '{unique_str}' but found '{unique_content}'");
                 }
             } else {
                 fail!("Missing content for SET account relation");
