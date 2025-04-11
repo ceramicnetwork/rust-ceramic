@@ -42,7 +42,7 @@ use crate::{
 pub use crate::since::SubscribeSinceMsg;
 pub use event::{
     conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionInit,
-    ConclusionTime,
+    ConclusionTime, TimeProof,
 };
 pub use table::ConclusionFeed;
 
@@ -363,9 +363,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        pipeline_ctx,
-        tests::{MockConclusionFeed, TestContext},
-        ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics,
+        concluder::TimeProof, pipeline_ctx, tests::{MockConclusionFeed, TestContext}, ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics
     };
 
     async fn init(feed: MockConclusionFeed) -> anyhow::Result<TestContext<ConcluderHandle>> {
@@ -448,6 +446,10 @@ mod tests {
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
                     .unwrap()],
+                    time_proof: Some(TimeProof {
+                        before: 0,
+                        chain_id: String::default(),
+                    }),
                 })])
             });
         mock_feed

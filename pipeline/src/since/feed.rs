@@ -44,8 +44,6 @@ pub trait FeedTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
 }
 
 /// A table that when queried produces an unbounded stream of data.
-/// It is assumed that the table contains an "conclusion_event_order" column and new data arrives in increasing
-/// "conclusion_event_order" order.
 #[derive(Debug)]
 pub struct FeedTable<S> {
     source: S,
