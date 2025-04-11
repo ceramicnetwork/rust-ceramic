@@ -6,19 +6,19 @@ use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 
-use crate::blockchain::eth_rpc;
-use crate::event::validator::ChainInclusionProvider;
-use crate::store::EventAccess;
 use crate::{
+    blockchain::eth_rpc,
+    eth_rpc::ChainInclusionProof,
     event::{
         service::{ValidationError, ValidationRequirement},
         validator::{
             grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch},
             signed::SignedEventValidator,
             time::TimeEventValidator,
+            ChainInclusionProvider,
         },
     },
-    store::EventInsertable,
+    store::{EventAccess, EventInsertable},
     Result,
 };
 
@@ -31,6 +31,8 @@ pub struct ValidatedEvents {
     pub unvalidated: Vec<UnvalidatedEvent>,
     /// Events that failed validation
     pub invalid: Vec<ValidationError>,
+    /// The proofs for the validated time events that can be stored for future time stamping
+    pub proofs: Vec<ChainInclusionProof>,
 }
 
 #[derive(Debug)]
@@ -107,6 +109,7 @@ impl ValidatedEvents {
             valid: Vec::with_capacity(valid),
             unvalidated: Vec::with_capacity(valid / 4),
             invalid: Vec::new(),
+            proofs: Vec::new(),
         }
     }
 
@@ -141,6 +144,11 @@ impl EventValidator {
         })
     }
 
+    /// Get the time event verifier
+    pub(crate) fn time_event_verifier(&self) -> &TimeEventValidator {
+        &self.time_event_verifier
+    }
+
     /// Validates the events with the given validation requirement
     /// If the [`ValidationRequirement`] is None, it just returns every event as valid
     pub(crate) async fn validate_events(
@@ -159,6 +167,7 @@ impl EventValidator {
                     .collect(),
                 unvalidated: Vec::new(),
                 invalid: Vec::new(),
+                proofs: Vec::new(),
             });
         };
 
@@ -211,8 +220,8 @@ impl EventValidator {
                 .validate_chain_inclusion(time_event.as_time())
                 .await
             {
-                Ok(_t) => {
-                    // TODO(AES-345): Someday, we will use `t.as_unix_ts()` and care about the actual timestamp, but for now we just consider it valid
+                Ok(t) => {
+                    validated_events.proofs.push(t);
                     validated_events.valid.push(time_event.into());
                 }
                 Err(err) => {

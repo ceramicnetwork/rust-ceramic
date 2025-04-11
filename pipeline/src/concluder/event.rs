@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use arrow::datatypes::{DataType, Field, Int32Type};
-use ceramic_core::ssi::caip2;
 use ceramic_core::METAMODEL_STREAM_ID;
 use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
@@ -139,6 +138,10 @@ pub struct ConclusionTime {
     pub tx_type: String,
     /// Root cid of the proof.
     pub root: Cid,
+    /// Transaction input of the proof.
+    pub tx_input: String,
+    /// Block hash of the proof.
+    pub block_hash: String,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
@@ -491,6 +494,13 @@ mod tests {
                     ],
                 },
                 order: 2,
+                before: 0,
+                chain_id: String::default(),
+                tx_hash: String::default(),
+                tx_type: String::default(),
+                root: Cid::default(),
+                tx_input: String::default(),
+                block_hash: String::default(),
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(

@@ -5,7 +5,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::eth_rpc::{ChainInclusion, ChainInclusionProof, Error};
+use crate::eth_rpc::{
+    types::ChainProofMetadata, ChainInclusion, ChainInclusionProof, Error, Timestamp,
+};
 use alloy::{
     hex,
     primitives::{BlockHash, TxHash},
@@ -194,11 +196,6 @@ fn get_root_cid_from_input(input: &str, tx_type: EthProofType) -> anyhow::Result
     }
 }
 
-/// Get the expected transaction hash for a given root CID (this is v1 proof type)
-fn expected_tx_hash(cid: Cid) -> anyhow::Result<TxHash> {
-    Ok(TxHash::from_str(&hex::encode(cid.hash().digest()))?)
-}
-
 #[async_trait::async_trait]
 impl ChainInclusion for HttpEthRpc {
     fn chain_id(&self) -> &caip2::ChainId {
@@ -208,7 +205,7 @@ impl ChainInclusion for HttpEthRpc {
     /// Get the block chain transaction if it exists with the block timestamp information
     async fn get_chain_inclusion_proof(&self, input: &AnchorProof) -> Result<ChainInclusionProof> {
         // transaction to blockHash, blockNumber, input
-        let tx_hash = expected_tx_hash(input.tx_hash())
+        let tx_hash = crate::blockchain::tx_hash_try_from_cid(input.tx_hash())
             .map_err(|e| Error::InvalidArgument(format!("invalid transaction hash: {}", e)))?;
         let tx_hash_res = match self.eth_transaction_by_hash(tx_hash).await? {
             Some(tx) => tx,
@@ -239,7 +236,8 @@ impl ChainInclusion for HttpEthRpc {
             trace!(?blk_hash_res, "blockByHash response");
             let tx_type = EthProofType::from_str(input.tx_type())
                 .map_err(|e| Error::InvalidProof(e.to_string()))?;
-            let root_cid = get_root_cid_from_input(&tx_hash_res.input.to_string(), tx_type)
+            let tx_input = tx_hash_res.input.to_string();
+            let root_cid = get_root_cid_from_input(&tx_input, tx_type)
                 .map_err(|e| Error::InvalidProof(e.to_string()))?;
 
             if let Some(threshold) = BLOCK_THRESHHOLDS.get(self.chain_id()) {
@@ -252,8 +250,14 @@ impl ChainInclusion for HttpEthRpc {
             }
 
             Ok(ChainInclusionProof {
-                timestamp: blk_hash_res.header.timestamp,
+                timestamp: Timestamp::from_unix_ts(blk_hash_res.header.timestamp),
+                block_hash: block_hash.to_string(),
                 root_cid,
+                meta_data: ChainProofMetadata {
+                    chain_id: self.chain_id.clone(),
+                    tx_hash: tx_hash.to_string(),
+                    tx_input,
+                },
             })
         } else {
             Err(Error::TxNotMined {
