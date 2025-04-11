@@ -21,8 +21,8 @@ use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
-use crate::event::validator::ChainInclusionProvider;
-use crate::store::{EventAccess, EventInsertable, EventRowDelivered};
+use crate::store::{ChainProof, EventAccess, EventInsertable, EventRowDelivered};
+use crate::{blockchain::tx_hash_try_from_cid, event::validator::ChainInclusionProvider};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -269,6 +269,7 @@ impl EventService {
             valid,
             unvalidated,
             invalid,
+            proofs,
         } = self
             .event_validator
             .validate_events(validation_requirement, to_validate)
@@ -279,6 +280,7 @@ impl EventService {
             valid,
             unvalidated,
             invalid: invalid_events,
+            proofs,
         })
     }
 
@@ -293,6 +295,7 @@ impl EventService {
             valid,
             unvalidated,
             mut invalid,
+            proofs,
         } = self.validate_events(items, validation_req.as_ref()).await?;
 
         let to_insert: Vec<EventInsertable> = valid
@@ -306,6 +309,14 @@ impl EventService {
         if !unvalidated.is_empty() {
             self.track_pending(unvalidated);
         }
+
+        // Someday, we may want to have the validation/proof inclusion logic have knowledge of the database and persist/read
+        // from it directly, rather than only keeping proofs in memory + RPC calls. But for now, it's simpler to persist everything once here
+        // and then the pipeline is able to read from this table and use the timestamps for conclusion events etc.
+        let proofs = proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>();
+        self.event_access
+            .persist_chain_inclusion_proofs(&proofs)
+            .await?;
 
         let (new, existed) = self
             .persist_events(to_insert, deliverable_req, &mut invalid)
@@ -391,11 +402,48 @@ impl EventService {
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
+                let proof = match self.discover_chain_proof(&time_event).await {
+                    Ok(proof) => {
+                        if proof.is_none() {
+                            return Err(Error::new_app(anyhow::anyhow!(
+                                "Missing chain proof for time event: {}",
+                                event_cid
+                            )));
+                        }
+                        proof
+                    }
+                    Err(e) => {
+                        return Err(Error::new_app(anyhow::anyhow!(
+                            "Failed to discover chain proof for time event: {}. Error: {}",
+                            event_cid,
+                            e
+                        )));
+                    }
+                };
+
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
                     order: delivered as u64,
+                    before: proof
+                        .as_ref()
+                        .and_then(|p| {
+                            p.timestamp
+                                .map(|ts| ts.try_into().expect("conclusion timestamp overflow"))
+                        })
+                        .unwrap_or_default(),
+                    chain_id: time_event.proof().chain_id().to_string(),
+                    tx_hash: time_event.proof().tx_hash().to_string(),
+                    tx_type: time_event.proof().tx_type().to_string(),
+                    root: time_event.proof().root(),
+                    tx_input: proof
+                        .as_ref()
+                        .map_or("".to_string(), |p| p.transaction_input.clone()),
+                    block_hash: proof
+                        .as_ref()
+                        .and_then(|p| p.block_hash.clone())
+                        .unwrap_or_default(),
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -517,6 +565,42 @@ impl EventService {
         } else {
             Ok(())
         }
+    }
+
+    /// This is a helper function for migrations to get the chain proof for a given event from the database,
+    /// or to validate and store it if it doesn't exist.
+    async fn discover_chain_proof(
+        &self,
+        event: &ceramic_event::unvalidated::TimeEvent,
+    ) -> anyhow::Result<Option<ChainProof>> {
+        let tx_hash = event.proof().tx_hash();
+        let tx_hash = tx_hash_try_from_cid(tx_hash).unwrap().to_string();
+        let proof = self
+            .event_access
+            .get_chain_proof(event.proof().chain_id(), &tx_hash)
+            .await?;
+
+        if let Some(proof) = proof {
+            return Ok(Some(proof));
+        }
+
+        // try using the RPC provider and store the proof afterward
+        let proof = match self
+            .event_validator
+            .time_event_verifier()
+            .validate_chain_inclusion(event)
+            .await
+        {
+            Ok(proof) => proof,
+            Err(e) => anyhow::bail!("Failed to validate chain inclusion proof: {:?}", e),
+        };
+
+        let proof = ChainProof::from(proof);
+        self.event_access
+            .persist_chain_inclusion_proofs(&[proof.clone()])
+            .await?;
+
+        Ok(Some(proof))
     }
 }
 

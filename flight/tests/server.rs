@@ -191,6 +191,13 @@ fn events(start_index: u64, highwater_mark: u64, limit: usize) -> Vec<Conclusion
                 "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
             )
             .unwrap()],
+            before: 0,
+            chain_id: String::default(),
+            tx_hash: String::default(),
+            tx_type: String::default(),
+            root: Cid::default(),
+            tx_input: String::default(),
+            block_hash: String::default(),
         }),
         ConclusionEvent::Data(ConclusionData {
             order: start_index + 3,

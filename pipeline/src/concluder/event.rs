@@ -110,7 +110,38 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-    //TODO Add temporal conclusions, i.e the block timestamp of this event
+
+    // TODO figure out how to populate these values.
+    // Once populated we need to update the conclusion_events table schema to include them
+    // Then we need to preserve them in the event_states table
+    // Finally in the resolver we can use this information to determine a canonical tip for a
+    // stream.
+    //
+    // Challenges: The anchor proof information is gather when validating the event but then
+    // forgotten. It likely needs to be persisteted into a new sqlite table and then the conclusion
+    // feed call needs to join against that table to produce these fields.
+    //
+    // How do we populate that table for existing data?
+    // Likely need some kind of explicit migration command that can be run to populate the table.
+    //
+    /// It is known that the time event existed before this time as a Unix timestamp in seconds.
+    pub before: u64,
+
+    // Only before should be needed for conflict resolution but it may be nice to preserve these
+    // other values as well?
+    //
+    /// Chain ID where this time event was anchored.
+    pub chain_id: String,
+    /// Transaction hash that anchored this time event.
+    pub tx_hash: String,
+    /// Transaction type (TODO: not sure what this is).
+    pub tx_type: String,
+    /// Root cid of the proof.
+    pub root: Cid,
+    /// Transaction input of the proof.
+    pub tx_input: String,
+    /// Block hash of the proof.
+    pub block_hash: String,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
@@ -463,6 +494,13 @@ mod tests {
                     ],
                 },
                 order: 2,
+                before: 0,
+                chain_id: String::default(),
+                tx_hash: String::default(),
+                tx_type: String::default(),
+                root: Cid::default(),
+                tx_input: String::default(),
+                block_hash: String::default(),
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(

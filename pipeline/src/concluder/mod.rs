@@ -169,7 +169,6 @@ actor_envelope! {
     ConcluderRecorder,
     NewEvents => NewEventsMsg,
     SubscribeSince => SubscribeSinceMsg,
-    EventsSince => EventsSinceMsg,
 }
 
 /// Notify actor of new events
@@ -329,23 +328,6 @@ async fn events_since(
     Ok(conclusion_events.execute_stream().await?)
 }
 
-/// Request the events since a highwater mark
-#[derive(Debug)]
-pub struct EventsSinceMsg {
-    /// Optional filters to apply to the query
-    pub filters: Vec<Expr>,
-}
-impl Message for EventsSinceMsg {
-    type Result = anyhow::Result<SendableRecordBatchStream>;
-}
-
-#[async_trait]
-impl Handler<EventsSinceMsg> for Concluder {
-    async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, Some(message.filters), None).await
-    }
-}
-
 #[async_trait]
 impl FeedTableSource for ConcluderHandle {
     fn schema(&self) -> SchemaRef {
@@ -466,6 +448,13 @@ mod tests {
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
                     .unwrap()],
+                    before: 0,
+                    chain_id: String::default(),
+                    tx_hash: String::default(),
+                    tx_type: String::default(),
+                    root: Cid::default(),
+                    tx_input: String::default(),
+                    block_hash: String::default(),
                 })])
             });
         mock_feed
