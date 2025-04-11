@@ -36,6 +36,9 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                     info!(key=%key, %reason, "invalid time proof for recon event");
                     invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
+                ValidationError::SoftError { key, reason } => {
+                    info!(key=%key, %reason, "soft error for recon event, not persisting or hanging up");
+                }
             };
         }
         recon::InsertResult::new_err(value.new.len(), invalid, value.pending_count)
@@ -141,6 +144,10 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
                     "Failed to insert event as `prev` event was missing".to_owned(),
                 ),
                 ValidationError::InvalidTimeProof { key, reason } => (
+                    key,
+                    format!("Failed to validate time event inclusion proof: {reason}"),
+                ),
+                ValidationError::SoftError { key, reason } => (
                     key,
                     format!("Failed to validate time event inclusion proof: {reason}"),
                 ),
