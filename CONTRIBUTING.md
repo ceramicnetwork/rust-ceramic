@@ -15,6 +15,18 @@ Using the makefile is not necessary during your development cycle, feel free to 
 
 However running `make` before publishing a PR will provide a good signal if you PR will pass CI.
 
+### Migrations
+
+If you need to add to the sqlite database schema, you will need to add a migration using the sqlx CLI. 
+
+```sh
+cargo install sqlx-cli
+# use the name of the migration and the source directory
+sqlx migrate add -r "chain_proof" --source ./migrations/sqlite
+```
+
+After the up and down files are generated, write the apply/revert SQL in the up/down files. This will be applied automatically at startup.
+
 ### Testing Specific Changes
 
 The above `make` targets test changes as a whole.

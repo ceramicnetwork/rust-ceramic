@@ -5,18 +5,10 @@ use ceramic_core::ssi::caip2;
 use ceramic_event::unvalidated;
 use tracing::warn;
 
-use crate::blockchain::eth_rpc::{self, ChainInclusion, HttpEthRpc};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Timestamp(u64);
-
-impl Timestamp {
-    /// A unix epoch timestamp
-    #[allow(dead_code)]
-    pub fn as_unix_ts(&self) -> u64 {
-        self.0
-    }
-}
+use crate::{
+    blockchain::eth_rpc::{self, ChainInclusion, HttpEthRpc},
+    eth_rpc::ChainInclusionProof,
+};
 
 /// Provider for validating chain inclusion of an AnchorProof on a remote blockchain.
 pub type ChainInclusionProvider = Arc<dyn ChainInclusion + Send + Sync>;
@@ -25,6 +17,7 @@ pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
     chain_providers: HashMap<caip2::ChainId, ChainInclusionProvider>,
+    // add a sql connection / block table access
 }
 
 impl std::fmt::Debug for TimeEventValidator {
@@ -83,7 +76,7 @@ impl TimeEventValidator {
     pub async fn validate_chain_inclusion(
         &self,
         event: &unvalidated::TimeEvent,
-    ) -> Result<Timestamp, eth_rpc::Error> {
+    ) -> Result<ChainInclusionProof, eth_rpc::Error> {
         let chain_id = caip2::ChainId::from_str(event.proof().chain_id())
             .map_err(|e| eth_rpc::Error::InvalidArgument(format!("invalid chain ID: {}", e)))?;
 
@@ -104,14 +97,17 @@ impl TimeEventValidator {
             )));
         }
 
-        Ok(Timestamp(chain_proof.timestamp))
+        Ok(chain_proof)
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::{
+        blockchain::eth_rpc,
+        eth_rpc::{ChainProofMetadata, Timestamp},
+    };
     use ceramic_event::unvalidated;
-    use ceramic_validation::eth_rpc;
     use cid::Cid;
     use ipld_core::ipld::Ipld;
     use mockall::{mock, predicate};
@@ -119,7 +115,7 @@ mod test {
 
     use super::*;
 
-    const BLOCK_TIMESTAMP: u64 = 1725913338;
+    const BLOCK_TIMESTAMP: Timestamp = Timestamp::from_unix_ts(1725913338);
 
     fn time_event_single_event_batch() -> unvalidated::TimeEvent {
         unvalidated::Builder::time()
@@ -255,10 +251,13 @@ mod test {
         root_cid: Cid,
     ) -> TimeEventValidator {
         let mut mock_provider = MockEthRpcProviderTest::new();
-        let chain =
+        let chain_id =
             caip2::ChainId::from_str("eip155:11155111").expect("eip155:11155111 is a valid chain");
 
-        mock_provider.expect_chain_id().once().return_const(chain);
+        mock_provider
+            .expect_chain_id()
+            .once()
+            .return_const(chain_id.clone());
         mock_provider
             .expect_get_chain_inclusion_proof()
             .once()
@@ -267,6 +266,12 @@ mod test {
                 Ok(eth_rpc::ChainInclusionProof {
                     timestamp: BLOCK_TIMESTAMP,
                     root_cid,
+                    block_hash: "0x0".to_string(),
+                    meta_data: ChainProofMetadata {
+                        chain_id: chain_id,
+                        tx_hash: "0x0".to_string(),
+                        tx_input: "0x0".to_string(),
+                    },
                 })
             });
         TimeEventValidator::new_with_providers(vec![Arc::new(mock_provider)])
@@ -278,8 +283,8 @@ mod test {
         let verifier = get_mock_provider(event.proof().clone(), event.proof().root()).await;
 
         match verifier.validate_chain_inclusion(&event).await {
-            Ok(ts) => {
-                assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
+            Ok(proof) => {
+                assert_eq!(proof.timestamp, BLOCK_TIMESTAMP);
             }
             Err(e) => panic!("should have passed: {:?}", e),
         }
@@ -314,7 +319,7 @@ mod test {
 
         match verifier.validate_chain_inclusion(&event).await {
             Ok(ts) => {
-                assert_eq!(ts.as_unix_ts(), BLOCK_TIMESTAMP);
+                assert_eq!(ts.timestamp, BLOCK_TIMESTAMP);
             }
             Err(e) => panic!("should have passed: {:?}", e),
         }
