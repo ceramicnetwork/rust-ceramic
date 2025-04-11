@@ -1187,9 +1187,11 @@ mod tests {
     use validation::model::{ModelAccountRelationV2, ModelDefinition};
 
     use crate::{
-        cid_string::cid_string, concluder::mock::MockConcluder, conclusion_events_to_record_batch,
-        pipeline_ctx, tests::TestContext, ConclusionData, ConclusionEvent, ConclusionInit,
-        ConclusionTime,
+        cid_string::cid_string,
+        concluder::{mock::MockConcluder, TimeProof},
+        conclusion_events_to_record_batch, pipeline_ctx,
+        tests::TestContext,
+        ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime,
     };
 
     async fn init() -> anyhow::Result<TestContext<AggregatorHandle>> {
@@ -1393,6 +1395,10 @@ mod tests {
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
                 .unwrap()],
+                time_proof: Some(TimeProof {
+                    before: 0,
+                    chain_id: String::default(),
+                }),
             }),
             ConclusionEvent::Data(ConclusionData {
                 order: 3,

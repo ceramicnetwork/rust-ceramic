@@ -15,10 +15,10 @@ use recon::{AssociativeHash, HashCount, Key, Sha256a};
 use crate::store::{
     sql::{
         entities::{
-            rebuild_car, BlockRow, CountRow, EventInsertable, OrderKey, ReconEventBlockRaw,
-            ReconHash,
+            rebuild_car, BlockRow, ChainProof, CountRow, EventInsertable, OrderKey,
+            ReconEventBlockRaw, ReconHash,
         },
-        query::{EventQuery, ReconQuery, SqlBackend},
+        query::{ChainProofQuery, EventQuery, ReconQuery, SqlBackend},
     },
     BlockAccess, Error, EventBlockAccess, Result,
 };
@@ -572,5 +572,42 @@ impl EventAccess {
             })
             .collect::<Result<Vec<AnchorRequest>>>()?;
         Ok(rows)
+    }
+
+    /// Persist chain inclusion proofs
+    pub async fn persist_chain_inclusion_proofs(&self, proofs: &[ChainProof]) -> Result<()> {
+        let mut tx = self.pool.writer().begin().await?;
+        for proof in proofs {
+            sqlx::query(ChainProofQuery::upsert_timestamp())
+                .bind(&proof.chain_id)
+                .bind(&proof.block_hash)
+                .bind(&proof.timestamp)
+                .execute(&mut *tx)
+                .await?;
+
+            sqlx::query(ChainProofQuery::upsert_proof())
+                .bind(&proof.chain_id)
+                .bind(&proof.block_hash)
+                .bind(&proof.transaction_hash)
+                .bind(&proof.transaction_input)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Get chain inclusion proof for a transaction hash
+    pub async fn get_chain_proof(
+        &self,
+        chain_id: &str,
+        tx_hash: &str,
+    ) -> Result<Option<ChainProof>> {
+        let row: Option<ChainProof> = sqlx::query_as(ChainProofQuery::by_chain_id_and_tx_hash())
+            .bind(chain_id)
+            .bind(tx_hash)
+            .fetch_optional(self.pool.reader())
+            .await?;
+        Ok(row)
     }
 }

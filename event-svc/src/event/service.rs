@@ -12,7 +12,7 @@ use super::{
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
-use ceramic_pipeline::{ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
+use ceramic_pipeline::{concluder::TimeProof, ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
@@ -21,8 +21,8 @@ use itertools::Itertools;
 use recon::ReconItem;
 use tracing::{trace, warn};
 
-use crate::event::validator::ChainInclusionProvider;
-use crate::store::{EventAccess, EventInsertable, EventRowDelivered};
+use crate::store::{ChainProof, EventAccess, EventInsertable, EventRowDelivered};
+use crate::{blockchain::tx_hash_try_from_cid, event::validator::ChainInclusionProvider};
 use crate::{Error, Result};
 
 /// How many events to select at once to see if they've become deliverable when we have downtime
@@ -269,6 +269,7 @@ impl EventService {
             valid,
             unvalidated,
             invalid,
+            proofs,
         } = self
             .event_validator
             .validate_events(validation_requirement, to_validate)
@@ -279,6 +280,7 @@ impl EventService {
             valid,
             unvalidated,
             invalid: invalid_events,
+            proofs,
         })
     }
 
@@ -293,6 +295,7 @@ impl EventService {
             valid,
             unvalidated,
             mut invalid,
+            proofs,
         } = self.validate_events(items, validation_req.as_ref()).await?;
 
         let to_insert: Vec<EventInsertable> = valid
@@ -306,6 +309,14 @@ impl EventService {
         if !unvalidated.is_empty() {
             self.track_pending(unvalidated);
         }
+
+        // Someday, we may want to have the validation/proof inclusion logic have knowledge of the database and persist/read
+        // from it directly, rather than only keeping proofs in memory + RPC calls. But for now, it's simpler to persist everything once here
+        // and then the pipeline is able to read from this table and use the timestamps for conclusion events etc.
+        let proofs = proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>();
+        self.event_access
+            .persist_chain_inclusion_proofs(&proofs)
+            .await?;
 
         let (new, existed) = self
             .persist_events(to_insert, deliverable_req, &mut invalid)
@@ -391,16 +402,30 @@ impl EventService {
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
+                let proof = match self.discover_chain_proof(&time_event).await {
+                    Ok(proof) => Some(proof),
+                    Err(error) => {
+                        tracing::warn!(
+                            ?event_cid,
+                            ?error,
+                            "Failed to discover chain proof for time event"
+                        );
+                        None
+                    }
+                };
+
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
                     order: delivered as u64,
-                    before: todo!(),
-                    chain_id: todo!(),
-                    tx_hash: todo!(),
-                    tx_type: todo!(),
-                    root: todo!(),
+                    time_proof: proof.map(|p| TimeProof {
+                        before: p
+                            .timestamp
+                            .try_into()
+                            .expect("conclusion timestamp overflow"),
+                        chain_id: p.chain_id,
+                    }),
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -523,6 +548,40 @@ impl EventService {
             Ok(())
         }
     }
+
+    /// This is a helper function for migrations to get the chain proof for a given event from the database,
+    /// or to validate and store it if it doesn't exist.
+    async fn discover_chain_proof(
+        &self,
+        event: &ceramic_event::unvalidated::TimeEvent,
+    ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {
+        let tx_hash = event.proof().tx_hash();
+        let tx_hash = tx_hash_try_from_cid(tx_hash).unwrap().to_string();
+        let proof = self
+            .event_access
+            .get_chain_proof(event.proof().chain_id(), &tx_hash)
+            .await
+            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
+
+        if let Some(proof) = proof {
+            return Ok(proof);
+        }
+
+        // try using the RPC provider and store the proof afterward
+        let proof = self
+            .event_validator
+            .time_event_verifier()
+            .validate_chain_inclusion(event)
+            .await?;
+
+        let proof = ChainProof::from(proof);
+        self.event_access
+            .persist_chain_inclusion_proofs(&[proof.clone()])
+            .await
+            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
+
+        Ok(proof)
+    }
 }
 
 // Small wrapper container around the data field to hold other mutable metadata for the
@@ -576,6 +635,12 @@ pub enum ValidationError {
     },
     /// A time event proof was invalid for some reason
     InvalidTimeProof {
+        key: EventId,
+        reason: String,
+    },
+    /// 'Soft error' -> should not kill recon conversation but should not be persisted
+    /// A time event could not be validated because no RPC provider was available
+    SoftError {
         key: EventId,
         reason: String,
     },

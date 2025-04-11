@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use arrow::datatypes::{DataType, Field, Int32Type};
-use ceramic_core::ssi::caip2;
 use ceramic_core::METAMODEL_STREAM_ID;
 use ceramic_event::{unvalidated, StreamId, StreamIdType};
 use cid::Cid;
@@ -124,21 +123,17 @@ pub struct ConclusionTime {
     //
     // How do we populate that table for existing data?
     // Likely need some kind of explicit migration command that can be run to populate the table.
-    //
+    /// Proof of time event anchoring
+    pub time_proof: Option<TimeProof>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Time event proof has been validated and resulted in a proof of time event anchoring
+pub struct TimeProof {
     /// It is known that the time event existed before this time as a Unix timestamp in seconds.
     pub before: u64,
-
-    // Only before should be needed for conflict resolution but it may be nice to preserve these
-    // other values as well?
-    //
     /// Chain ID where this time event was anchored.
     pub chain_id: String,
-    /// Transaction hash that anchored this time event.
-    pub tx_hash: String,
-    /// Transaction type (TODO: not sure what this is).
-    pub tx_type: String,
-    /// Root cid of the proof.
-    pub root: Cid,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
@@ -491,6 +486,10 @@ mod tests {
                     ],
                 },
                 order: 2,
+                time_proof: Some(TimeProof {
+                    before: 0,
+                    chain_id: String::default(),
+                }),
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(

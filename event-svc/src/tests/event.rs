@@ -661,11 +661,70 @@ where
     );
 }
 
+mockall::mock! {
+    #[derive(Debug)]
+    pub ChainInclusion {}
+    #[async_trait::async_trait]
+    impl crate::eth_rpc::ChainInclusion for ChainInclusion {
+        fn chain_id(&self) -> &ssi::caip2::ChainId;
+        async fn get_chain_inclusion_proof(
+            &self,
+            input: &unvalidated::AnchorProof,
+        ) -> Result<crate::eth_rpc::ChainInclusionProof, crate::eth_rpc::Error>;
+    }
+}
+
+fn get_mock_chain_provider(
+    chain_id: &str,
+    inputs: Vec<unvalidated::AnchorProof>,
+) -> Arc<dyn crate::eth_rpc::ChainInclusion + Send + Sync + 'static> {
+    let mut mock_provider = MockChainInclusion::new();
+    let chain_id = ssi::caip2::ChainId::from_str(chain_id).expect("valid chain");
+    mock_provider
+        .expect_chain_id()
+        .once()
+        .return_const(chain_id.clone());
+    for input in inputs {
+        let root_cid = input.root();
+        let chain_id = chain_id.clone();
+        mock_provider
+            .expect_get_chain_inclusion_proof()
+            .times(2)
+            .with(mockall::predicate::eq(input))
+            .returning(move |p| {
+                Ok(crate::eth_rpc::ChainInclusionProof {
+                    timestamp: crate::eth_rpc::Timestamp::from_unix_ts(1744383131980),
+                    root_cid,
+                    block_hash: format!("0xblock_hash{}", p.tx_hash().to_string()),
+                    meta_data: crate::eth_rpc::ChainProofMetadata {
+                        chain_id: chain_id.clone(),
+                        tx_hash: p.tx_hash().to_string(),
+                        tx_input: format!("0x{}{}", p.tx_type(), p.tx_hash().to_string()),
+                    },
+                })
+            });
+    }
+    Arc::new(mock_provider)
+}
+
 #[test(tokio::test)]
 async fn test_conclusion_events_since() -> Result<(), Box<dyn std::error::Error>> {
     let pool = SqlitePool::connect_in_memory().await?;
-    let service = EventService::try_new(pool, UndeliveredEventReview::Skip, false, vec![]).await?;
+
     let test_events = generate_chained_events().await;
+    let proofs: Vec<unvalidated::AnchorProof> = test_events
+        .iter()
+        .filter_map(|(_, e)| match e {
+            unvalidated::Event::Time(time_event) => Some(time_event.proof().clone()),
+            _ => None,
+        })
+        .collect();
+    let chain_provider = get_mock_chain_provider("test:chain", proofs);
+
+    let providers = vec![chain_provider];
+
+    let service =
+        EventService::try_new(pool, UndeliveredEventReview::Skip, false, providers).await?;
 
     ceramic_api::EventService::insert_many(
         &service,
