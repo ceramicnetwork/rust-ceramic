@@ -17,6 +17,7 @@ pub mod concluder;
 mod config;
 pub mod dimension_extract;
 mod metrics;
+pub mod resolver;
 pub mod schemas;
 mod since;
 pub mod stream_id_string;

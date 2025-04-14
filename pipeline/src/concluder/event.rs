@@ -110,7 +110,30 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-    //TODO Add temporal conclusions, i.e the block timestamp of this event
+
+    // TODO figure out how to populate these values.
+    // Once populated we need to update the conclusion_events table schema to include them
+    // Then we need to preserve them in the event_states table
+    // Finally in the resolver we can use this information to determine a canonical tip for a
+    // stream.
+    //
+    // Challenges: The anchor proof information is gather when validating the event but then
+    // forgotten. It likely needs to be persisteted into a new sqlite table and then the conclusion
+    // feed call needs to join against that table to produce these fields.
+    //
+    // How do we populate that table for existing data?
+    // Likely need some kind of explicit migration command that can be run to populate the table.
+    /// Proof of time event anchoring
+    pub time_proof: Option<TimeProof>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Time event proof has been validated and resulted in a proof of time event anchoring
+pub struct TimeProof {
+    /// It is known that the time event existed before this time as a Unix timestamp in seconds.
+    pub before: u64,
+    /// Chain ID where this time event was anchored.
+    pub chain_id: String,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
@@ -463,6 +486,10 @@ mod tests {
                     ],
                 },
                 order: 2,
+                time_proof: Some(TimeProof {
+                    before: 0,
+                    chain_id: String::default(),
+                }),
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(

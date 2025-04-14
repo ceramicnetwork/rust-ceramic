@@ -191,6 +191,7 @@ fn events(start_index: u64, highwater_mark: u64, limit: usize) -> Vec<Conclusion
                 "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
             )
             .unwrap()],
+            time_proof: None,
         }),
         ConclusionEvent::Data(ConclusionData {
             order: start_index + 3,
