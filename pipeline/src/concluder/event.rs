@@ -110,21 +110,8 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-
-    // TODO figure out how to populate these values.
-    // Once populated we need to update the conclusion_events table schema to include them
-    // Then we need to preserve them in the event_states table
-    // Finally in the resolver we can use this information to determine a canonical tip for a
-    // stream.
-    //
-    // Challenges: The anchor proof information is gather when validating the event but then
-    // forgotten. It likely needs to be persisteted into a new sqlite table and then the conclusion
-    // feed call needs to join against that table to produce these fields.
-    //
-    // How do we populate that table for existing data?
-    // Likely need some kind of explicit migration command that can be run to populate the table.
     /// Proof of time event anchoring
-    pub time_proof: Option<TimeProof>,
+    pub time_proof: TimeProof,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +208,8 @@ pub struct ConclusionEventBuilder {
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
+    before: UInt64Builder,
+    chain_id: StringBuilder,
 }
 
 impl Default for ConclusionEventBuilder {
@@ -246,6 +235,8 @@ impl Default for ConclusionEventBuilder {
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
+            before: UInt64Builder::new(),
+            chain_id: StringBuilder::new(),
         }
     }
 }
@@ -261,6 +252,8 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!data_event.previous.is_empty());
                 self.order.append_value(data_event.order);
+                self.before.append_null();
+                self.chain_id.append_null();
                 &data_event.init
             }
             ConclusionEvent::Time(time_event) => {
@@ -271,6 +264,12 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!time_event.previous.is_empty());
                 self.order.append_value(time_event.order);
+
+                // Add time proof data
+                self.before.append_value(time_event.time_proof.before);
+                self.chain_id
+                    .append_value(time_event.time_proof.chain_id.clone());
+
                 &time_event.init
             }
         };
@@ -302,6 +301,8 @@ impl ConclusionEventBuilder {
             ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
             ("data", Arc::new(self.data.finish()) as ArrayRef),
             ("previous", Arc::new(self.previous.finish()) as ArrayRef),
+            ("before", Arc::new(self.before.finish()) as ArrayRef),
+            ("chain_id", Arc::new(self.chain_id.finish()) as ArrayRef),
         ])
         .expect("unreachable, we should always construct a well formed struct array")
     }
@@ -486,10 +487,10 @@ mod tests {
                     ],
                 },
                 order: 2,
-                time_proof: Some(TimeProof {
+                time_proof: TimeProof {
                     before: 0,
                     chain_id: String::default(),
-                }),
+                },
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(

@@ -123,6 +123,15 @@ pub struct FromIpfsOpts {
     /// For example, on mainnet, events are expected to have a chain id of 'eip155:1'.
     #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAIN")]
     validate_chain: bool,
+
+    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+    )]
+    ethereum_rpc_urls: Vec<String>,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -165,13 +174,18 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool(SqliteOpts::default()).await?;
+    let rpc_providers = opts
+        .network
+        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .await?;
+
     // TODO: feature flags here? or just remove this entirely when enabling
     let event_svc = Arc::new(
         EventService::try_new(
             sqlite_pool,
             ceramic_event_svc::UndeliveredEventReview::Skip,
             false,
-            vec![],
+            rpc_providers,
         )
         .await?,
     );

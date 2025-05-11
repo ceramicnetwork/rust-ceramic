@@ -4,7 +4,6 @@ use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
-use tokio::try_join;
 
 use crate::{
     blockchain::eth_rpc,
@@ -117,6 +116,7 @@ impl ValidatedEvents {
         self.valid.extend(other.valid);
         self.invalid.extend(other.invalid);
         self.unvalidated.extend(other.unvalidated);
+        self.proofs.extend(other.proofs);
     }
 }
 
@@ -150,37 +150,33 @@ impl EventValidator {
     }
 
     /// Validates the events with the given validation requirement
-    /// If the [`ValidationRequirement`] is None, it just returns every event as valid
+    /// Regardless of the validation requirement, time events are always validated.
+    /// If the [`ValidationRequirement`] is None, it just returns every data event as valid.
     pub(crate) async fn validate_events(
         &self,
         validation_req: Option<&ValidationRequirement>,
         parsed_events: Vec<UnvalidatedEvent>,
     ) -> Result<ValidatedEvents> {
-        let validation_req = if let Some(req) = validation_req {
-            req
-        } else {
-            // we don't validate so we just return done
-            return Ok(ValidatedEvents {
-                valid: parsed_events
-                    .into_iter()
-                    .map(ValidatedEvent::from_unvalidated_unchecked)
-                    .collect(),
-                unvalidated: Vec::new(),
-                invalid: Vec::new(),
-                proofs: Vec::new(),
-            });
-        };
-
         let mut validated = ValidatedEvents::new_with_expected_valid(parsed_events.len());
-        // partition the events by type of validation needed and delegate to validators
+
+        // Partition the events by type of validation needed and delegate to validators
         let grouped = GroupedEvents::from(parsed_events);
 
-        let (validated_signed, validated_time) = try_join!(
-            self.validate_signed_events(grouped.signed_batch, validation_req),
-            self.validate_time_events(grouped.time_batch)
-        )?;
-        validated.extend_with(validated_signed);
+        // Time events are always validated
+        let validated_time = self.validate_time_events(grouped.time_batch).await?;
         validated.extend_with(validated_time);
+
+        if let Some(req) = validation_req {
+            let validated_signed = self
+                .validate_signed_events(grouped.signed_batch, req)
+                .await?;
+            validated.extend_with(validated_signed);
+        } else {
+            // Return all data events as valid
+            validated
+                .valid
+                .extend(Vec::<ValidatedEvent>::from(grouped.signed_batch));
+        };
 
         if !validated.invalid.is_empty() {
             tracing::warn!(count=%validated.invalid.len(), "invalid events discovered");

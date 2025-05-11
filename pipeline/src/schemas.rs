@@ -10,7 +10,7 @@ static PENDING_EVENT_STATES: OnceLock<SchemaRef> = OnceLock::new();
 static STREAM_TIPS: OnceLock<SchemaRef> = OnceLock::new();
 static STREAM_TIPS_PARTITIONED: OnceLock<SchemaRef> = OnceLock::new();
 static STREAM_STATES: OnceLock<SchemaRef> = OnceLock::new();
-static STREAM_STATES_PARTITIONED: OnceLock<SchemaRef> = OnceLock::new();
+static _STREAM_STATES_PARTITIONED: OnceLock<SchemaRef> = OnceLock::new();
 
 /// The `conclusion_events` table contains the raw events annotated with conclusions about each
 /// event.
@@ -60,6 +60,8 @@ pub fn conclusion_events() -> SchemaRef {
                     DataType::List(Arc::new(Field::new("item", DataType::Binary, false))),
                     true,
                 ),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
@@ -116,6 +118,8 @@ pub fn event_states() -> SchemaRef {
                     DataType::List(Field::new_list_field(DataType::Utf8, true).into()),
                     true,
                 ),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
@@ -189,6 +193,8 @@ pub fn pending_event_states() -> SchemaRef {
                 Field::new("data", DataType::Binary, true),
                 Field::new("patch", DataType::Binary, true),
                 Field::new("model_version", DataType::Binary, true),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )

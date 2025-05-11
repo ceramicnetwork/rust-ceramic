@@ -84,8 +84,8 @@ const DEFAULT_MAX_CACHED_ROWS: usize = 10_000;
 pub struct Resolver {
     ctx: SessionContextRef,
     broadcast_tx: broadcast::Sender<RecordBatch>,
-    max_cached_rows: usize,
-    order: u64,
+    _max_cached_rows: usize,
+    _order: u64,
 }
 
 impl std::fmt::Debug for Resolver {
@@ -248,8 +248,8 @@ impl Resolver {
         let resolver = Resolver {
             ctx: ctx.session(),
             broadcast_tx,
-            max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
-            order: max_stream_state_order.unwrap_or_default(),
+            _max_cached_rows: max_cached_rows.unwrap_or(DEFAULT_MAX_CACHED_ROWS),
+            _order: max_stream_state_order.unwrap_or_default(),
         };
 
         let (handle, task_handle) = Self::spawn(size, resolver, metrics, shutdown.wait_fut());
@@ -275,10 +275,10 @@ impl Resolver {
 
     // Process batch of new event states.
     // Return any new stream states.
-    #[instrument(skip(self, event_states), err)]
+    #[instrument(skip(self, _event_states), err)]
     async fn process_event_states_batch(
         &mut self,
-        event_states: RecordBatch,
+        _event_states: RecordBatch,
     ) -> Result<RecordBatch> {
         // Psuedocode of the data flow of conflict resolution.
         // The process involves two tables and two udf.

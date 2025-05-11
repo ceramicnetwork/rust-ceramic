@@ -363,7 +363,10 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        concluder::TimeProof, pipeline_ctx, tests::{MockConclusionFeed, TestContext}, ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics
+        concluder::TimeProof,
+        pipeline_ctx,
+        tests::{MockConclusionFeed, TestContext},
+        ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics,
     };
 
     async fn init(feed: MockConclusionFeed) -> anyhow::Result<TestContext<ConcluderHandle>> {
@@ -446,10 +449,10 @@ mod tests {
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
                     .unwrap()],
-                    time_proof: Some(TimeProof {
+                    time_proof: TimeProof {
                         before: 0,
                         chain_id: String::default(),
-                    }),
+                    },
                 })])
             });
         mock_feed

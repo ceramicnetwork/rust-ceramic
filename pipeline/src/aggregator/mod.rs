@@ -92,10 +92,10 @@ const EVENT_STATES_PERSISTENT_TABLE: &str = "ceramic._internal.event_states_pers
 // columns change). The revision is a physical versioning number and not directly associated with
 // the logical schema version of the table. There are many cases where the physical revision may
 // need to change while the logical version remains the same.
-const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev2/event_states/";
+const EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev3/event_states/";
 
 const PENDING_EVENT_STATES_TABLE: &str = "ceramic._internal.pending_event_states";
-const PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev0/pending_event_states/";
+const PENDING_EVENT_STATES_TABLE_OBJECT_STORE_PATH: &str = "ceramic/rev1/pending_event_states/";
 
 // Maximum number of rows to cache in memory before writing to object store.
 const DEFAULT_MAX_CACHED_ROWS: usize = 10_000;
@@ -344,6 +344,8 @@ impl Aggregator {
                         col("patch"),
                         col("model_version"),
                         col("model_definition"),
+                        col("before"),
+                        col("chain_id"),
                     ])
                     .context("select ready mids")?,
             )
@@ -466,6 +468,8 @@ impl Aggregator {
                 array_element(col("previous"), lit(1)).alias("previous"),
                 cid_part(array_element(col("previous"), lit(1)))
                     .alias("previous_event_cid_partition"),
+                col("before"),
+                col("chain_id"),
                 cid_part(col("event_cid")).alias("event_cid_partition"),
             ])?
             .join_on(
@@ -489,6 +493,8 @@ impl Aggregator {
                 col("previous_data"),
                 col("previous_height"),
                 anon_col("data").alias("data"),
+                anon_col("before").alias("before"),
+                anon_col("chain_id").alias("chain_id"),
                 col("event_cid_partition"),
             ])?)
     }
@@ -522,6 +528,8 @@ impl Aggregator {
                 "patch",
                 "model_version",
                 "model_definition",
+                "before",
+                "chain_id",
             ])
             .context("select pending events")?
             .cache()
@@ -572,6 +580,8 @@ impl Aggregator {
                     name: "patched.data".to_owned(),
                 })
                 .alias("data"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])?)
     }
@@ -593,6 +603,8 @@ impl Aggregator {
                 dimension_extract(col("dimensions"), lit("model")),
             )
             .alias("validation_errors"),
+            col("before"),
+            col("chain_id"),
             col("event_cid_partition"),
         ])?)
     }
@@ -657,6 +669,8 @@ impl Aggregator {
                     name: "patched.patch".to_owned(),
                 })
                 .alias("patch"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")
@@ -694,6 +708,8 @@ impl Aggregator {
                 col("patch"),
                 col("model_version"),
                 col("model_definition"),
+                col("before"),
+                col("chain_id"),
             ])
             .context("select")
     }
@@ -719,6 +735,8 @@ impl Aggregator {
                     dimension_extract(col("dimensions"), lit("unique")),
                 )
                 .alias("validation_errors"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")
@@ -765,6 +783,8 @@ impl Aggregator {
                 col("event_height"),
                 col("data"),
                 col("validation_errors"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")?
@@ -1395,10 +1415,10 @@ mod tests {
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
                 .unwrap()],
-                time_proof: Some(TimeProof {
+                time_proof: TimeProof {
                     before: 0,
                     chain_id: String::default(),
-                }),
+                },
             }),
             ConclusionEvent::Data(ConclusionData {
                 order: 3,
