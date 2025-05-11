@@ -12,7 +12,9 @@ use super::{
 };
 use async_trait::async_trait;
 use ceramic_core::{EventId, Network, NodeId, SerializeExt};
-use ceramic_pipeline::{concluder::TimeProof, ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime};
+use ceramic_pipeline::{
+    concluder::TimeProof, ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime,
+};
 use ceramic_sql::sqlite::SqlitePool;
 use cid::Cid;
 use futures::stream::BoxStream;
@@ -402,30 +404,22 @@ impl EventService {
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
-                let proof = match self.discover_chain_proof(&time_event).await {
-                    Ok(proof) => Some(proof),
-                    Err(error) => {
-                        tracing::warn!(
-                            ?event_cid,
-                            ?error,
-                            "Failed to discover chain proof for time event"
-                        );
-                        None
-                    }
-                };
+                let proof = self.discover_chain_proof(&time_event).await.map_err(|e| {
+                    Error::new_app(anyhow::anyhow!("Failed to discover chain proof: {:?}", e))
+                })?;
 
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
                     init,
                     previous: vec![*time_event.prev()],
                     order: delivered as u64,
-                    time_proof: proof.map(|p| TimeProof {
-                        before: p
+                    time_proof: TimeProof {
+                        before: proof
                             .timestamp
                             .try_into()
                             .expect("conclusion timestamp overflow"),
-                        chain_id: p.chain_id,
-                    }),
+                        chain_id: proof.chain_id,
+                    },
                 }))
             }
             ceramic_event::unvalidated::Event::Signed(signed_event) => {
@@ -551,7 +545,7 @@ impl EventService {
 
     /// This is a helper function for migrations to get the chain proof for a given event from the database,
     /// or to validate and store it if it doesn't exist.
-    async fn discover_chain_proof(
+    pub async fn discover_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,
     ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {

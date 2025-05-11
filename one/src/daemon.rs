@@ -276,7 +276,7 @@ pub struct DaemonOpts {
     object_store_url: url::Url,
 }
 
-async fn get_eth_rpc_providers(
+pub async fn get_eth_rpc_providers(
     ethereum_rpc_urls: Vec<String>,
     network: &Network,
 ) -> Result<Vec<ChainInclusionProvider>> {

@@ -36,6 +36,7 @@ impl From<InsertResult> for recon::InsertResult<EventId> {
                     info!(key=%key, %reason, "invalid time proof for recon event");
                     invalid.push(recon::InvalidItem::InvalidSignature { key })
                 }
+                ValidationError::SoftError { .. } => todo!(),
             };
         }
         recon::InsertResult::new_err(value.new.len(), invalid, value.pending_count)
@@ -144,6 +145,7 @@ impl From<InsertResult> for Vec<ceramic_api::EventInsertResult> {
                     key,
                     format!("Failed to validate time event inclusion proof: {reason}"),
                 ),
+                ValidationError::SoftError { .. } => todo!(),
             };
             api_res.push(ceramic_api::EventInsertResult::new_failed(key, reason));
         }

@@ -1395,10 +1395,10 @@ mod tests {
                     "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                 )
                 .unwrap()],
-                time_proof: Some(TimeProof {
+                time_proof: TimeProof {
                     before: 0,
                     chain_id: String::default(),
-                }),
+                },
             }),
             ConclusionEvent::Data(ConclusionData {
                 order: 3,

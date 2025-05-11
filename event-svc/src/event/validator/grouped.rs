@@ -111,6 +111,17 @@ pub struct SignedValidationBatch {
     pub unsigned: Vec<Unsigned>,
 }
 
+impl From<SignedValidationBatch> for Vec<ValidatedEvent> {
+    fn from(value: SignedValidationBatch) -> Self {
+        let mut events =
+            Vec::with_capacity(value.data.len() + value.init.len() + value.unsigned.len());
+        events.extend(value.data.into_iter().map(Into::into));
+        events.extend(value.init.into_iter().map(Into::into));
+        events.extend(value.unsigned.into_iter().map(Into::into));
+        events
+    }
+}
+
 impl From<Vec<UnvalidatedEvent>> for GroupedEvents {
     fn from(value: Vec<UnvalidatedEvent>) -> Self {
         let mut grouped = GroupedEvents::new(value.len() / 2);
