@@ -468,9 +468,9 @@ impl Aggregator {
                 array_element(col("previous"), lit(1)).alias("previous"),
                 cid_part(array_element(col("previous"), lit(1)))
                     .alias("previous_event_cid_partition"),
-                cid_part(col("event_cid")).alias("event_cid_partition"),
                 col("before"),
                 col("chain_id"),
+                cid_part(col("event_cid")).alias("event_cid_partition"),
             ])?
             .join_on(
                 event_states,
@@ -580,9 +580,9 @@ impl Aggregator {
                     name: "patched.data".to_owned(),
                 })
                 .alias("data"),
-                col("event_cid_partition"),
                 col("before"),
                 col("chain_id"),
+                col("event_cid_partition"),
             ])?)
     }
     #[instrument(skip_all)]
@@ -603,9 +603,9 @@ impl Aggregator {
                 dimension_extract(col("dimensions"), lit("model")),
             )
             .alias("validation_errors"),
-            col("event_cid_partition"),
             col("before"),
             col("chain_id"),
+            col("event_cid_partition"),
         ])?)
     }
     // Applies patches to model instances
