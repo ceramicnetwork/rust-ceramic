@@ -344,6 +344,8 @@ impl Aggregator {
                         col("patch"),
                         col("model_version"),
                         col("model_definition"),
+                        col("before"),
+                        col("chain_id"),
                     ])
                     .context("select ready mids")?,
             )
@@ -467,6 +469,8 @@ impl Aggregator {
                 cid_part(array_element(col("previous"), lit(1)))
                     .alias("previous_event_cid_partition"),
                 cid_part(col("event_cid")).alias("event_cid_partition"),
+                col("before"),
+                col("chain_id"),
             ])?
             .join_on(
                 event_states,
@@ -489,6 +493,8 @@ impl Aggregator {
                 col("previous_data"),
                 col("previous_height"),
                 anon_col("data").alias("data"),
+                anon_col("before").alias("before"),
+                anon_col("chain_id").alias("chain_id"),
                 col("event_cid_partition"),
             ])?)
     }
@@ -522,6 +528,8 @@ impl Aggregator {
                 "patch",
                 "model_version",
                 "model_definition",
+                "before",
+                "chain_id",
             ])
             .context("select pending events")?
             .cache()
@@ -573,6 +581,8 @@ impl Aggregator {
                 })
                 .alias("data"),
                 col("event_cid_partition"),
+                col("before"),
+                col("chain_id"),
             ])?)
     }
     #[instrument(skip_all)]
@@ -594,6 +604,8 @@ impl Aggregator {
             )
             .alias("validation_errors"),
             col("event_cid_partition"),
+            col("before"),
+            col("chain_id"),
         ])?)
     }
     // Applies patches to model instances
@@ -657,6 +669,8 @@ impl Aggregator {
                     name: "patched.patch".to_owned(),
                 })
                 .alias("patch"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")
@@ -694,6 +708,8 @@ impl Aggregator {
                 col("patch"),
                 col("model_version"),
                 col("model_definition"),
+                col("before"),
+                col("chain_id"),
             ])
             .context("select")
     }
@@ -719,6 +735,8 @@ impl Aggregator {
                     dimension_extract(col("dimensions"), lit("unique")),
                 )
                 .alias("validation_errors"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")
@@ -765,6 +783,8 @@ impl Aggregator {
                 col("event_height"),
                 col("data"),
                 col("validation_errors"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select")?

@@ -208,6 +208,8 @@ pub struct ConclusionEventBuilder {
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
+    before: UInt64Builder,
+    chain_id: StringBuilder,
 }
 
 impl Default for ConclusionEventBuilder {
@@ -233,6 +235,8 @@ impl Default for ConclusionEventBuilder {
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
+            before: UInt64Builder::new(),
+            chain_id: StringBuilder::new(),
         }
     }
 }
@@ -248,6 +252,8 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!data_event.previous.is_empty());
                 self.order.append_value(data_event.order);
+                self.before.append_null();
+                self.chain_id.append_null();
                 &data_event.init
             }
             ConclusionEvent::Time(time_event) => {
@@ -258,6 +264,12 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!time_event.previous.is_empty());
                 self.order.append_value(time_event.order);
+
+                // Add time proof data
+                self.before.append_value(time_event.time_proof.before);
+                self.chain_id
+                    .append_value(time_event.time_proof.chain_id.clone());
+
                 &time_event.init
             }
         };
@@ -289,6 +301,8 @@ impl ConclusionEventBuilder {
             ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
             ("data", Arc::new(self.data.finish()) as ArrayRef),
             ("previous", Arc::new(self.previous.finish()) as ArrayRef),
+            ("before", Arc::new(self.before.finish()) as ArrayRef),
+            ("chain_id", Arc::new(self.chain_id.finish()) as ArrayRef),
         ])
         .expect("unreachable, we should always construct a well formed struct array")
     }

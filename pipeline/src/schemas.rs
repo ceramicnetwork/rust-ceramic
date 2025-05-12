@@ -1,6 +1,7 @@
 //! Expose the schema for each of the tables in the pipeline.
-use datafusion::arrow::datatypes::{DataType, Field, Fields, SchemaBuilder, SchemaRef, TimeUnit};
 use std::sync::{Arc, OnceLock};
+
+use datafusion::arrow::datatypes::{DataType, Field, Fields, SchemaBuilder, SchemaRef};
 
 static CONCLUSION_EVENTS: OnceLock<SchemaRef> = OnceLock::new();
 static EVENT_STATES: OnceLock<SchemaRef> = OnceLock::new();
@@ -59,15 +60,8 @@ pub fn conclusion_events() -> SchemaRef {
                     DataType::List(Arc::new(Field::new("item", DataType::Binary, false))),
                     true,
                 ),
-                // This will only be present if the event is a time conclusion event.
-                Field::new(
-                    "time_proof",
-                    DataType::Struct(Fields::from(vec![
-                        Field::new("before", DataType::UInt64, false),
-                        Field::new("chain_id", DataType::Utf8, false),
-                    ])),
-                    true,
-                ),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
@@ -124,14 +118,8 @@ pub fn event_states() -> SchemaRef {
                     DataType::List(Field::new_list_field(DataType::Utf8, true).into()),
                     true,
                 ),
-                Field::new(
-                    "time_proof",
-                    DataType::Struct(Fields::from(vec![
-                        Field::new("before", DataType::UInt64, false),
-                        Field::new("chain_id", DataType::Utf8, false),
-                    ])),
-                    true,
-                ),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
@@ -205,6 +193,8 @@ pub fn pending_event_states() -> SchemaRef {
                 Field::new("data", DataType::Binary, true),
                 Field::new("patch", DataType::Binary, true),
                 Field::new("model_version", DataType::Binary, true),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
@@ -327,14 +317,8 @@ pub fn stream_states() -> SchemaRef {
                 Field::new("event_type", DataType::UInt8, false),
                 Field::new("event_height", DataType::UInt32, true),
                 Field::new("data", DataType::Binary, true),
-                Field::new(
-                    "time_proof",
-                    DataType::Struct(Fields::from(vec![
-                        Field::new("before", DataType::UInt64, false),
-                        Field::new("chain_id", DataType::Utf8, false),
-                    ])),
-                    false,
-                ),
+                Field::new("before", DataType::UInt64, true),
+                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
