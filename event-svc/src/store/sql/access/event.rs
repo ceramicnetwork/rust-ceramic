@@ -581,7 +581,7 @@ impl EventAccess {
             sqlx::query(ChainProofQuery::upsert_timestamp())
                 .bind(&proof.chain_id)
                 .bind(&proof.block_hash)
-                .bind(&proof.timestamp)
+                .bind(proof.timestamp)
                 .execute(&mut *tx)
                 .await?;
 
@@ -598,15 +598,11 @@ impl EventAccess {
     }
 
     /// Get chain inclusion proof for a transaction hash
-    pub async fn get_chain_proof(
-        &self,
-        chain_id: &str,
-        tx_hash: &str,
-    ) -> Result<Option<ChainProof>> {
-        let row: Option<ChainProof> = sqlx::query_as(ChainProofQuery::by_chain_id_and_tx_hash())
+    pub async fn get_chain_proof(&self, chain_id: &str, tx_hash: &str) -> Result<ChainProof> {
+        let row: ChainProof = sqlx::query_as(ChainProofQuery::by_chain_id_and_tx_hash())
             .bind(chain_id)
             .bind(tx_hash)
-            .fetch_optional(self.pool.reader())
+            .fetch_one(self.pool.reader())
             .await?;
         Ok(row)
     }

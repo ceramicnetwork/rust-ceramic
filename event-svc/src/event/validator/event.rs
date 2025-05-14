@@ -144,11 +144,6 @@ impl EventValidator {
         })
     }
 
-    /// Get the time event validator
-    pub(crate) fn time_event_validator(&self) -> &TimeEventValidator {
-        &self.time_event_validator
-    }
-
     /// Validates the events with the given validation requirement
     /// Regardless of the validation requirement, time events are always validated.
     /// If the [`ValidationRequirement`] is None, it just returns every data event as valid.

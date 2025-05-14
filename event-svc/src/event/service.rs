@@ -404,9 +404,7 @@ impl EventService {
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
-                let proof = self.discover_chain_proof(&time_event).await.map_err(|e| {
-                    Error::new_app(anyhow::anyhow!("Failed to discover chain proof: {:?}", e))
-                })?;
+                let proof = self.get_chain_proof(&time_event).await?;
 
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
@@ -545,36 +543,20 @@ impl EventService {
 
     /// This is a helper function to get the chain proof for a given event from the database, or to validate and store
     /// it if it doesn't exist.
-    async fn discover_chain_proof(
+    async fn get_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,
-    ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {
+    ) -> Result<ChainProof> {
         let tx_hash = event.proof().tx_hash();
         let tx_hash = tx_hash_try_from_cid(tx_hash).unwrap().to_string();
-        let proof = self
+        let chain_proof = self
             .event_access
             .get_chain_proof(event.proof().chain_id(), &tx_hash)
             .await
-            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
-
-        if let Some(proof) = proof {
-            return Ok(proof);
-        }
-
-        // try using the RPC provider and store the proof afterward
-        let proof = self
-            .event_validator
-            .time_event_validator()
-            .validate_chain_inclusion(event)
-            .await?;
-
-        let proof = ChainProof::from(proof);
-        self.event_access
-            .persist_chain_inclusion_proofs(&[proof.clone()])
-            .await
-            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
-
-        Ok(proof)
+            .map_err(|e| {
+                Error::new_app(anyhow::anyhow!("Failed to discover chain proof: {:?}", e))
+            })?;
+        Ok(chain_proof)
     }
 }
 
