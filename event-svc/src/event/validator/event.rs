@@ -127,7 +127,7 @@ pub struct EventValidator {
     /// It contains the ethereum RPC providers and lives for the live of the [`EventValidator`].
     /// The [`SignedEventValidator`] is currently constructed on a per validation request basis
     /// as it caches and drops events per batch.
-    time_event_verifier: TimeEventValidator,
+    time_event_validator: TimeEventValidator,
 }
 
 impl EventValidator {
@@ -136,17 +136,17 @@ impl EventValidator {
         event_access: Arc<EventAccess>,
         ethereum_rpc_providers: Vec<ChainInclusionProvider>,
     ) -> Result<Self> {
-        let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
+        let time_event_validator = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
 
         Ok(Self {
             event_access,
-            time_event_verifier,
+            time_event_validator,
         })
     }
 
-    /// Get the time event verifier
-    pub(crate) fn time_event_verifier(&self) -> &TimeEventValidator {
-        &self.time_event_verifier
+    /// Get the time event validator
+    pub(crate) fn time_event_validator(&self) -> &TimeEventValidator {
+        &self.time_event_validator
     }
 
     /// Validates the events with the given validation requirement
@@ -212,7 +212,7 @@ impl EventValidator {
         for time_event in events.0 {
             // TODO: better transient error handling from RPC client
             match self
-                .time_event_verifier
+                .time_event_validator
                 .validate_chain_inclusion(time_event.as_time())
                 .await
             {

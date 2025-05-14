@@ -564,7 +564,7 @@ impl EventService {
         // try using the RPC provider and store the proof afterward
         let proof = self
             .event_validator
-            .time_event_verifier()
+            .time_event_validator()
             .validate_chain_inclusion(event)
             .await?;
 
