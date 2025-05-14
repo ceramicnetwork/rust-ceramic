@@ -118,7 +118,7 @@ pub struct ChainInclusionProof {
     /// The root CID of the proof
     pub root_cid: Cid,
     /// The metadata about the proof and where it's stored
-    pub meta_data: ChainProofMetadata,
+    pub metadata: ChainProofMetadata,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

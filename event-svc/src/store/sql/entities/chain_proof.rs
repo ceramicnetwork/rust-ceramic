@@ -19,10 +19,10 @@ pub struct ChainProof {
 impl From<eth_rpc::ChainInclusionProof> for ChainProof {
     fn from(value: eth_rpc::ChainInclusionProof) -> Self {
         Self {
-            chain_id: value.meta_data.chain_id.to_string(),
+            chain_id: value.metadata.chain_id.to_string(),
             block_hash: value.block_hash,
-            transaction_hash: value.meta_data.tx_hash,
-            transaction_input: value.meta_data.tx_input,
+            transaction_hash: value.metadata.tx_hash,
+            transaction_input: value.metadata.tx_input,
             timestamp: value
                 .timestamp
                 .as_unix_ts()

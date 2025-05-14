@@ -253,7 +253,7 @@ impl ChainInclusion for HttpEthRpc {
                 timestamp: Timestamp::from_unix_ts(blk_hash_res.header.timestamp),
                 block_hash: block_hash.to_string(),
                 root_cid,
-                meta_data: ChainProofMetadata {
+                metadata: ChainProofMetadata {
                     chain_id: self.chain_id.clone(),
                     tx_hash: tx_hash.to_string(),
                     tx_input,

@@ -696,7 +696,7 @@ fn get_mock_chain_provider(
                     timestamp: crate::eth_rpc::Timestamp::from_unix_ts(1744383131980),
                     root_cid,
                     block_hash: format!("0xblock_hash{}", p.tx_hash().to_string()),
-                    meta_data: crate::eth_rpc::ChainProofMetadata {
+                    metadata: crate::eth_rpc::ChainProofMetadata {
                         chain_id: chain_id.clone(),
                         tx_hash: p.tx_hash().to_string(),
                         tx_input: format!("0x{}{}", p.tx_type(), p.tx_hash().to_string()),
