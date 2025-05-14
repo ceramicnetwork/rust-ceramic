@@ -275,7 +275,7 @@ impl ReconQuery {
     }
 }
 
-/// Represnts access to the ceramic_one_chain_proof and ceramic_one_chain_timestamp tables
+/// Represents access to the ceramic_one_chain_proof and ceramic_one_chain_timestamp tables
 /// In the future, transactions could be stored without block information, and retried until we discover something.
 /// For now, we only store the transaction when we discover the block information and timestamp.
 pub struct ChainProofQuery;
