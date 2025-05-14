@@ -317,8 +317,6 @@ pub fn stream_states() -> SchemaRef {
                 Field::new("event_type", DataType::UInt8, false),
                 Field::new("event_height", DataType::UInt32, true),
                 Field::new("data", DataType::Binary, true),
-                Field::new("before", DataType::UInt64, true),
-                Field::new("chain_id", DataType::Utf8, true),
             ]))
             .finish(),
         )
