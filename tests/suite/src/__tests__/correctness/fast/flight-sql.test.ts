@@ -47,6 +47,53 @@ describe('flight sql', () => {
     authenticatedDID = await randomDID()
   }, 20000)
 
+  test('concurrent initialization across threads', async () => {
+    const { Worker } = await import('worker_threads');
+
+    interface WorkerMessage {
+      success: boolean;
+      error?: string;
+    }
+
+    // Create workers that will all try to load the module
+    const createWorker = (): Promise<WorkerMessage> => new Promise((resolve, reject) => {
+      const worker = new Worker(`
+      import { createFlightSqlClient } from '@ceramic-sdk/flight-sql-client';
+      import { parentPort } from 'worker_threads';
+      const OPTIONS = {
+        headers: new Array(),
+        username: undefined,
+        password: undefined,
+        token: undefined,
+        tls: false,
+        host: "",
+        port: 0,
+      }
+      try {
+        const client = createFlightSqlClient(OPTIONS);
+        parentPort.postMessage({ success: true });
+      } catch (error) {
+        parentPort.postMessage({ success: false, error: error.message });
+      }
+    `, {
+        eval: true,
+      });
+
+      worker.on('message', (data) => resolve(data as WorkerMessage));
+      worker.on('error', reject);
+    });
+
+    const results = await Promise.all([
+      createWorker(),
+      createWorker(),
+    ]);
+
+    results.forEach(result => {
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+  });
+
   test('makes query', async () => {
     const testModel: ModelDefinition = {
       version: '2.0',
