@@ -29,13 +29,18 @@ use crate::flight_client::{execute_flight, setup_client, ClientOptions};
 
 fn init_logging() {
     // Set up a subscriber that logs to stdout
-    if let Err(result) = tracing_subscriber::FmtSubscriber::builder()
+    if let Err(e) = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .try_init()
     {
-        warn!("Tracing already initialized: {}", result);
+        let error_msg = e.to_string();
+        if error_msg.contains("already been set") {
+            warn!("Tracing already initialized");
+        } else {
+            panic!("Failed to initialize tracing: {}", e);
+        }
     }
 }
 
