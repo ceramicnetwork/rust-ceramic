@@ -9,6 +9,7 @@ use ceramic_core::{StreamId, StreamIdType, METAMODEL_STREAM_ID};
 use ceramic_flight::server::new_server;
 use ceramic_pipeline::{
     aggregator::{ModelAccountRelationV2, ModelDefinition, SubscribeSinceMsg},
+    concluder::TimeProof,
     ConclusionData, ConclusionEvent, ConclusionFeed, ConclusionInit, ConclusionTime,
     PipelineHandle,
 };
@@ -191,7 +192,10 @@ fn events(start_index: u64, highwater_mark: u64, limit: usize) -> Vec<Conclusion
                 "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
             )
             .unwrap()],
-            time_proof: None,
+            time_proof: TimeProof {
+                before: 0,
+                chain_id: String::default(),
+            },
         }),
         ConclusionEvent::Data(ConclusionData {
             order: start_index + 3,
