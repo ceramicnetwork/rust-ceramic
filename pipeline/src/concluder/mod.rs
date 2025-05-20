@@ -450,8 +450,8 @@ mod tests {
                     )
                     .unwrap()],
                     time_proof: TimeProof {
-                        before: 0,
-                        chain_id: String::default(),
+                        before: 1744383131980,
+                        chain_id: "test:chain".to_owned(),
                     },
                 })])
             });

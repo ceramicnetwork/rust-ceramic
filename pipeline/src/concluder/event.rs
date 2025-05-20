@@ -488,8 +488,8 @@ mod tests {
                 },
                 order: 2,
                 time_proof: TimeProof {
-                    before: 0,
-                    chain_id: String::default(),
+                    before: 1744383131980,
+                    chain_id: "test:chain".to_owned(),
                 },
             }),
             ConclusionEvent::Data(ConclusionData {
@@ -526,14 +526,14 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | conclusion_event_order | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   |
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |
-            | 1                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+
+            | conclusion_event_order | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   | before        | chain_id   |
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+
+            | 0                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |               |            |
+            | 1                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |               |            |
+            | 2                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              | 1744383131980 | test:chain |
+            | 3                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |               |            |
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+"#]].assert_eq(&formatted);
     }
 
     // Applies various transformations on a record batch of conclusion_events data to make it easier to
@@ -575,6 +575,8 @@ mod tests {
                     vec![col("previous")],
                 ))
                 .alias("previous"),
+                col("before"),
+                col("chain_id"),
             ])
             .unwrap()
             .sort(vec![col("conclusion_event_order").sort(true, true)])
