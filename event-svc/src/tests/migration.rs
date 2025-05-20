@@ -17,7 +17,9 @@ use ceramic_car::CarReader;
 use ceramic_core::{DidDocument, EventId, Network, SerializeExt, StreamId};
 use ceramic_event::unvalidated;
 
-use crate::{event::BlockStore, EventService};
+use crate::{
+    event::BlockStore, tests::event::get_mock_chain_provider, EventService, UndeliveredEventReview,
+};
 
 struct InMemBlockStore {
     blocks: BTreeMap<Cid, Vec<u8>>,
@@ -47,14 +49,18 @@ async fn blocks_from_cars(cars: Vec<Vec<u8>>) -> InMemBlockStore {
     }
     InMemBlockStore { blocks }
 }
-async fn test_migration(cars: Vec<Vec<u8>>) {
+async fn test_migration(cars: Vec<Vec<u8>>, proofs: Vec<unvalidated::AnchorProof>) {
     let expected_events: BTreeSet<_> = cars
         .iter()
         .map(|car| multibase::encode(multibase::Base::Base64Url, car))
         .collect();
     let blocks = blocks_from_cars(cars).await;
     let conn = crate::store::SqlitePool::connect_in_memory().await.unwrap();
-    let service = EventService::new_with_event_validation(conn).await.unwrap();
+    let chain_provider = get_mock_chain_provider("eip155:11155111", proofs);
+    let providers = vec![chain_provider];
+    let service = EventService::try_new(conn, UndeliveredEventReview::Skip, true, providers)
+        .await
+        .unwrap();
     service
         .migrate_from_ipfs(Network::Local(42), blocks, false, vec![], false, None)
         .await
@@ -204,32 +210,42 @@ async fn random_time_event(prev: Cid) -> Box<unvalidated::TimeEvent> {
 }
 #[test(tokio::test)]
 async fn unsigned_init_event() {
-    test_migration(vec![random_unsigned_init_event()
-        .await
-        .encode_car()
-        .unwrap()])
+    test_migration(
+        vec![random_unsigned_init_event().await.encode_car().unwrap()],
+        vec![],
+    )
     .await;
 }
 #[test(tokio::test)]
 async fn many_unsigned_init_events() {
-    test_migration(vec![
-        random_unsigned_init_event().await.encode_car().unwrap(),
-        random_unsigned_init_event().await.encode_car().unwrap(),
-        random_unsigned_init_event().await.encode_car().unwrap(),
-    ])
+    test_migration(
+        vec![
+            random_unsigned_init_event().await.encode_car().unwrap(),
+            random_unsigned_init_event().await.encode_car().unwrap(),
+            random_unsigned_init_event().await.encode_car().unwrap(),
+        ],
+        vec![],
+    )
     .await;
 }
 #[test(tokio::test)]
 async fn signed_init_event() {
-    test_migration(vec![random_signed_init_event().await.encode_car().unwrap()]).await;
+    test_migration(
+        vec![random_signed_init_event().await.encode_car().unwrap()],
+        vec![],
+    )
+    .await;
 }
 #[test(tokio::test)]
 async fn many_signed_init_events() {
-    test_migration(vec![
-        random_signed_init_event().await.encode_car().unwrap(),
-        random_signed_init_event().await.encode_car().unwrap(),
-        random_signed_init_event().await.encode_car().unwrap(),
-    ])
+    test_migration(
+        vec![
+            random_signed_init_event().await.encode_car().unwrap(),
+            random_signed_init_event().await.encode_car().unwrap(),
+            random_signed_init_event().await.encode_car().unwrap(),
+        ],
+        vec![],
+    )
     .await;
 }
 #[test(tokio::test)]
@@ -238,7 +254,7 @@ async fn signed_data_event() {
     for event in random_signed_data_event().await {
         cars.push(event.encode_car().unwrap());
     }
-    test_migration(cars).await;
+    test_migration(cars, vec![]).await;
 }
 #[test(tokio::test)]
 async fn many_signed_data_events() {
@@ -248,47 +264,63 @@ async fn many_signed_data_events() {
             cars.push(event.encode_car().unwrap());
         }
     }
-    test_migration(cars).await;
+    test_migration(cars, vec![]).await;
 }
 #[test(tokio::test)]
 async fn cacao_signed_data_event() {
-    test_migration(vec![new_cacao_signed_data_event()]).await;
+    test_migration(vec![new_cacao_signed_data_event()], vec![]).await;
 }
 #[test(tokio::test)]
 async fn unsigned_time_event() {
     let mut cars = Vec::new();
+    let mut proofs = Vec::new();
     for event in random_unsigned_init_time_event().await {
         cars.push(event.encode_car().unwrap());
+        if let unvalidated::Event::Time(time_event) = event {
+            proofs.push(time_event.proof().clone());
+        }
     }
-    test_migration(cars).await;
+    test_migration(cars, proofs).await;
 }
 #[test(tokio::test)]
 async fn signed_init_time_event() {
     let mut cars = Vec::new();
+    let mut proofs = Vec::new();
     for event in random_signed_init_time_event().await {
         cars.push(event.encode_car().unwrap());
+        if let unvalidated::Event::Time(time_event) = event {
+            proofs.push(time_event.proof().clone());
+        }
     }
 
-    test_migration(cars).await;
+    test_migration(cars, proofs).await;
 }
 #[test(tokio::test)]
 async fn many_time_events() {
     let mut cars = Vec::new();
+    let mut proofs = Vec::new();
     for _ in 0..3 {
         for event in random_unsigned_init_time_event().await {
             cars.push(event.encode_car().unwrap());
+            if let unvalidated::Event::Time(time_event) = event {
+                proofs.push(time_event.proof().clone());
+            }
         }
     }
     for _ in 0..3 {
         for event in random_signed_init_time_event().await {
             cars.push(event.encode_car().unwrap());
+            if let unvalidated::Event::Time(time_event) = event {
+                proofs.push(time_event.proof().clone());
+            }
         }
     }
-    test_migration(cars).await;
+    test_migration(cars, proofs).await;
 }
 #[test(tokio::test)]
 async fn all_events() {
     let mut cars = Vec::new();
+    let mut proofs = Vec::new();
 
     cars.push(new_cacao_signed_data_event());
 
@@ -306,12 +338,18 @@ async fn all_events() {
     for _ in 0..3 {
         for event in random_unsigned_init_time_event().await {
             cars.push(event.encode_car().unwrap());
+            if let unvalidated::Event::Time(time_event) = event {
+                proofs.push(time_event.proof().clone());
+            }
         }
     }
     for _ in 0..3 {
         for event in random_signed_init_time_event().await {
             cars.push(event.encode_car().unwrap());
+            if let unvalidated::Event::Time(time_event) = event {
+                proofs.push(time_event.proof().clone());
+            }
         }
     }
-    test_migration(cars).await;
+    test_migration(cars, proofs).await;
 }

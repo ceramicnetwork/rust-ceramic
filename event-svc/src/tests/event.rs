@@ -674,7 +674,7 @@ mockall::mock! {
     }
 }
 
-fn get_mock_chain_provider(
+pub fn get_mock_chain_provider(
     chain_id: &str,
     inputs: Vec<unvalidated::AnchorProof>,
 ) -> Arc<dyn crate::eth_rpc::ChainInclusion + Send + Sync + 'static> {
