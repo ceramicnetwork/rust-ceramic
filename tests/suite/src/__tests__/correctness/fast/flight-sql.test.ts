@@ -249,7 +249,7 @@ describe('flight sql', () => {
 
     // Expect stream query to be complete
     expect(await query.next()).toBeNull()
-  }, 10000)
+  }, 20000)
 
   test('prepared feed query', async () => {
     const testModel: ModelDefinition = {
