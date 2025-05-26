@@ -614,6 +614,8 @@ pub enum ValidationError {
         key: EventId,
         reason: String,
     },
+    // TODO: Add 'Soft error' -> should not kill recon conversation but should not be persisted.
+    // e.g. A time event could not be validated because no RPC provider was available.
 }
 
 #[derive(Debug, PartialEq, Eq, Default)]
