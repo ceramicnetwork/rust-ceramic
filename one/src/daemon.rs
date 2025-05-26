@@ -8,8 +8,7 @@ use anyhow::{anyhow, bail, Result};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeKey;
-use ceramic_event_svc::eth_rpc::HttpEthRpc;
-use ceramic_event_svc::{ChainInclusionProvider, EventService};
+use ceramic_event_svc::EventService;
 use ceramic_interest_svc::InterestService;
 use ceramic_kubo_rpc::Multiaddr;
 use ceramic_metrics::{config::Config as MetricsConfig, MetricsHandle};
@@ -278,56 +277,6 @@ pub struct DaemonOpts {
     object_store_url: url::Url,
 }
 
-async fn get_eth_rpc_providers(
-    ethereum_rpc_urls: Vec<String>,
-    network: &Network,
-) -> Result<Vec<ChainInclusionProvider>> {
-    let ethereum_rpc_urls = if ethereum_rpc_urls.is_empty() {
-        network.default_rpc_urls()?
-    } else {
-        ethereum_rpc_urls
-    };
-
-    let mut providers = Vec::new();
-    for url in ethereum_rpc_urls {
-        match HttpEthRpc::try_new(&url).await {
-            Ok(provider) => {
-                let provider_chain = provider.chain_id();
-                if network
-                    .supported_chain_ids()
-                    .map_or(true, |ids| ids.contains(provider_chain))
-                {
-                    info!(
-                        "Using ethereum rpc provider for chain: {} with url: {}",
-                        provider.chain_id(),
-                        provider.url()
-                    );
-                    let provider: ChainInclusionProvider = Arc::new(provider);
-                    providers.push(provider);
-                } else {
-                    warn!("Eth RPC provider {} uses chainid {} which isn't supported by Ceramic network {:?}", url, provider_chain,network);
-                }
-            }
-            Err(err) => {
-                warn!("failed to create RPC client with url: '{url}': {:?}", err);
-            }
-        }
-    }
-
-    if providers.is_empty() {
-        if *network == Network::Local || *network == Network::InMemory {
-            warn!("No usable ethereum RPC provided for network {}. All TimeEvent validation will fail", network.name());
-        } else {
-            bail!(
-                "No usable ethereum RPC configured for network {}",
-                network.name()
-            );
-        }
-    }
-
-    Ok(providers)
-}
-
 fn spawn_database_optimizer(
     sqlite_pool: SqlitePool,
     mut shutdown: ShutdownSignal,
@@ -424,7 +373,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         None
     };
 
-    let rpc_providers = get_eth_rpc_providers(opts.ethereum_rpc_urls, &opts.network).await?;
+    let rpc_providers = opts
+        .network
+        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .await?;
 
     // Construct services from pool
     let peer_svc = Arc::new(PeerService::new(sqlite_pool.clone()));

@@ -92,13 +92,44 @@ impl FromStr for EthProofType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// A timestamp that is able to provide seconds since the unix epoch
+pub struct Timestamp(u64);
+
+impl Timestamp {
+    /// Create a timestamp from a unix epoch timestamp
+    pub const fn from_unix_ts(ts: u64) -> Self {
+        Self(ts)
+    }
+
+    /// A unix epoch timestamp
+    pub fn as_unix_ts(&self) -> u64 {
+        self.0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 /// A proof of time derived from state on the blockchain
 pub struct ChainInclusionProof {
     /// The timestamp the proof was recorded
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
+    /// The block hash in hex form with '0x' prefix
+    pub block_hash: String,
     /// The root CID of the proof
     pub root_cid: Cid,
+    /// The metadata about the proof and where it's stored
+    pub metadata: ChainProofMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// Metadata about the proof and where it's stored
+pub struct ChainProofMetadata {
+    /// Chain ID of the proof
+    pub chain_id: ssi::caip2::ChainId,
+    /// The transaction hash in hex form with '0x' prefix
+    pub tx_hash: String,
+    /// The transaction input in hex form with '0x' prefix
+    pub tx_input: String,
 }
 
 #[async_trait::async_trait]

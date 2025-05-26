@@ -20,7 +20,7 @@ use napi_derive::{module_exports, napi};
 use snafu::prelude::*;
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::conversion::record_batches_to_buffer;
@@ -29,14 +29,19 @@ use crate::flight_client::{execute_flight, setup_client, ClientOptions};
 
 fn init_logging() {
     // Set up a subscriber that logs to stdout
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
+    if let Err(e) = tracing_subscriber::FmtSubscriber::builder()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
-        .finish();
-
-    // Set the global default subscriber
-    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+        .try_init()
+    {
+        let error_msg = e.to_string();
+        if error_msg.contains("already been set") {
+            warn!("Tracing already initialized");
+        } else {
+            panic!("Failed to initialize tracing: {}", e);
+        }
+    }
 }
 
 #[module_exports]

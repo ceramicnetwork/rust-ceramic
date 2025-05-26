@@ -8,6 +8,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+# will probably need contract and signer-local features for self anchoring
+alloy.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
@@ -29,10 +31,14 @@ itertools.workspace = true
 multihash-codetable.workspace = true
 multihash-derive.workspace = true
 multihash.workspace = true
+lru.workspace = true
+once_cell.workspace = true
 prometheus-client.workspace = true
 recon.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_ipld_dagcbor.workspace = true
+ssi.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

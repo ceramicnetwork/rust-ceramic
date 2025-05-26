@@ -1,13 +1,13 @@
 {
   "name": "@ceramic-sdk/http-client",
-  "version": "0.2.1",
+  "version": "0.10.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "http", "client"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/http-client"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/http-client"
   },
   "type": "module",
   "main": "dist/index.js",

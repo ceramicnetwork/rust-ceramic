@@ -47,6 +47,53 @@ describe('flight sql', () => {
     authenticatedDID = await randomDID()
   }, 20000)
 
+  test('concurrent initialization across threads', async () => {
+    const { Worker } = await import('worker_threads');
+
+    interface WorkerMessage {
+      success: boolean;
+      error?: string;
+    }
+
+    // Create workers that will all try to load the module
+    const createWorker = (): Promise<WorkerMessage> => new Promise((resolve, reject) => {
+      const worker = new Worker(`
+      import { createFlightSqlClient } from '@ceramic-sdk/flight-sql-client';
+      import { parentPort } from 'worker_threads';
+      const OPTIONS = {
+        headers: new Array(),
+        username: undefined,
+        password: undefined,
+        token: undefined,
+        tls: false,
+        host: "",
+        port: 0,
+      }
+      try {
+        const client = createFlightSqlClient(OPTIONS);
+        parentPort.postMessage({ success: true });
+      } catch (error) {
+        parentPort.postMessage({ success: false, error: error.message });
+      }
+    `, {
+        eval: true,
+      });
+
+      worker.on('message', (data) => resolve(data as WorkerMessage));
+      worker.on('error', reject);
+    });
+
+    const results = await Promise.all([
+      createWorker(),
+      createWorker(),
+    ]);
+
+    results.forEach(result => {
+      expect(result.success).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+  });
+
   test('makes query', async () => {
     const testModel: ModelDefinition = {
       version: '2.0',
@@ -121,7 +168,7 @@ describe('flight sql', () => {
       schema: {
         type: 'object',
         properties: {
-          test: { type: 'string', maxLength: 10 },
+          test: { type: 'string', maxLength: 100 },
         },
         additionalProperties: false,
       },
@@ -157,7 +204,7 @@ describe('flight sql', () => {
       schema: {
         type: 'object',
         properties: {
-          test: { type: 'string', maxLength: 10 },
+          test: { type: 'string', maxLength: 100 },
         },
         additionalProperties: false,
       },
@@ -186,10 +233,10 @@ describe('flight sql', () => {
     )
 
     let remaining = 4
-    writeNewEvent(ceramicClient, model, 'event a')
-    writeNewEvent(ceramicClient, model, 'event b')
-    writeNewEvent(ceramicClient, model, 'event c')
-    writeNewEvent(ceramicClient, model, 'event d')
+    for (const val of ['a', 'b', 'c', 'd']) {
+      const name = `query event ${val}`
+      await writeNewEvent(ceramicClient, model, name, new Uint8Array([...name].map((c) => c.charCodeAt(0))))
+    }
     // Concurrent with the writes expect we get the events back
     while (remaining > 0) {
       const buffer = await query.next()
@@ -202,7 +249,7 @@ describe('flight sql', () => {
 
     // Expect stream query to be complete
     expect(await query.next()).toBeNull()
-  }, 10000)
+  }, 20000)
 
   test('prepared feed query', async () => {
     const testModel: ModelDefinition = {
@@ -242,10 +289,10 @@ describe('flight sql', () => {
     )
 
     let remaining = 4
-    writeNewEvent(ceramicClient, model, 'event a')
-    writeNewEvent(ceramicClient, model, 'event b')
-    writeNewEvent(ceramicClient, model, 'event c')
-    writeNewEvent(ceramicClient, model, 'event d')
+    for (const val in ['a', 'b', 'c', 'd']) {
+      const name = `prepared event ${val}`
+      writeNewEvent(ceramicClient, model, name, new Uint8Array([...name].map((c) => c.charCodeAt(0))))
+    }
     // Concurrent with the writes expect we get the events back
     while (remaining > 0) {
       const buffer = await query.next()
@@ -265,13 +312,15 @@ describe('flight sql', () => {
     ceramicClient: CeramicClient,
     model: StreamID,
     body: string,
+    unique: Uint8Array | undefined,
   ): Promise<CID> {
     const eventPayload: InitEventPayload = {
-      data: { body },
+      data: { test: body },
       header: {
         controllers: [asDIDString(authenticatedDID.id)],
         model,
         sep: 'model',
+        unique,
       },
     }
     const encodedPayload = InitEventPayload.encode(eventPayload)

@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.54.2] - 2025-03-21
+
+### 🐛 Bug Fixes
+
+- Update the sdk repo url ([#696](https://github.com/ceramicnetwork/rust-ceramic/issues/696))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(sdk)* Version v0.3.0 ([#694](https://github.com/ceramicnetwork/rust-ceramic/issues/694))
+
+## [0.54.1] - 2025-03-21
+
+### 🐛 Bug Fixes
+
+- Make apply patch not fail the pipeline ([#690](https://github.com/ceramicnetwork/rust-ceramic/issues/690))
+
+### 📚 Documentation
+
+- Add pipeline docs ([#691](https://github.com/ceramicnetwork/rust-ceramic/issues/691))
+
+### ⚙️ Miscellaneous Tasks
+
+- Add CI workflows to publish sdk ([#689](https://github.com/ceramicnetwork/rust-ceramic/issues/689))
+- Fix sdk_release_pr script ([#693](https://github.com/ceramicnetwork/rust-ceramic/issues/693))
+- Version v0.54.1 ([#692](https://github.com/ceramicnetwork/rust-ceramic/issues/692))
+
 ## [0.54.0] - 2025-03-19
 
 ### 🚀 Features
@@ -20,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Update CODEOWNERS ([#672](https://github.com/ceramicnetwork/rust-ceramic/issues/672))
 - Autogen sdk docs, ci check they are generated ([#674](https://github.com/ceramicnetwork/rust-ceramic/issues/674))
 - Use different gnosis rpc url ([#684](https://github.com/ceramicnetwork/rust-ceramic/issues/684))
+- Version v0.54.0 ([#688](https://github.com/ceramicnetwork/rust-ceramic/issues/688))
 
 ## [0.53.0] - 2025-03-10
 

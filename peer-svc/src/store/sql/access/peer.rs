@@ -55,9 +55,9 @@ impl PeerDB {
 
     /// Insert a single peer into the database.
     pub async fn insert(pool: &SqlitePool, key: &PeerKey) -> Result<bool> {
-        let mut tx = pool.begin_tx().await.map_err(Error::from)?;
+        let mut tx = pool.begin_tx().await?;
         let new_key = PeerDB::insert_tx(&mut tx, key).await?;
-        tx.commit().await.map_err(Error::from)?;
+        tx.commit().await?;
         Ok(new_key)
     }
 
@@ -70,14 +70,14 @@ impl PeerDB {
             0 => Ok(InsertResult::new(0)),
             _ => {
                 let mut results = 0;
-                let mut tx = pool.begin_tx().await.map_err(Error::from)?;
+                let mut tx = pool.begin_tx().await?;
 
                 for item in items.iter() {
                     PeerDB::insert_tx(&mut tx, item)
                         .await?
                         .then(|| results += 1);
                 }
-                tx.commit().await.map_err(Error::from)?;
+                tx.commit().await?;
                 Ok(InsertResult::new(results))
             }
         }

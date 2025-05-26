@@ -74,6 +74,7 @@ impl<T> ConclusionFeedTable<T> {
     fn with_batch_size(self, batch_size: i64) -> Self {
         Self { batch_size, ..self }
     }
+
     fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
         let find_highwater_mark = |col: &Expr, lit: &Expr| {
             col.try_as_col()
@@ -435,7 +436,6 @@ mod tests {
 
     fn events(start_conclusion_event_order: u64, count: i64) -> Vec<ConclusionEvent> {
         (0..count)
-            .into_iter()
             .map(|i| {
                 // Use the same event data as all we care about is the count and
                 // conclusion_event_order

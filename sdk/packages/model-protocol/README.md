@@ -8,7 +8,7 @@ npm install @ceramic-sdk/model-protocol
 
 ## Documentation
 
-[API reference](https://github.com/ceramicstudio/ceramic-sdk/tree/main/docs/@ceramic-sdk/model-protocol)
+[API reference](https://github.com/ceramicnetwork/rust-ceramic/tree/main/sdk/docs/@ceramic-sdk/model-protocol)
 
 ## License
 

@@ -1,13 +1,13 @@
 {
   "name": "@ceramic-sdk/model-protocol",
-  "version": "0.2.1",
+  "version": "0.10.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "stream", "model"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/model-protocol"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/model-protocol"
   },
   "type": "module",
   "main": "dist/index.js",
@@ -27,6 +27,7 @@
     "build": "pnpm build:clean && pnpm build:types && pnpm build:js",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
     "test:ci": "pnpm run test --ci --coverage",
+    "prepare": "pnpm build",
     "prepublishOnly": "package-check"
   },
   "dependencies": {

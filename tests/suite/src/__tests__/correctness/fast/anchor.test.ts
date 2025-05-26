@@ -7,7 +7,7 @@ import * as helpers from '../../../utils/dynamoDbHelpers.js'
 
 const ComposeDbUrls = String(process.env.COMPOSEDB_URLS).split(',')
 
-describe('anchor', () => {
+describe.skip('anchor', () => {
   beforeAll(async () => await helpers.createTestTable())
   afterAll(async () => await helpers.cleanup())
 

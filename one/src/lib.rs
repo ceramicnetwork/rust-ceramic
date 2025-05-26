@@ -9,8 +9,9 @@ mod migrations;
 mod network;
 mod query;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use ceramic_core::ssi::caip2::ChainId;
+use ceramic_event_svc::{eth_rpc::HttpEthRpc, ChainInclusionProvider};
 use ceramic_metrics::config::Config as MetricsConfig;
 use ceramic_sql::sqlite::{SqliteOpts, SqlitePool};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -22,8 +23,7 @@ use multihash_codetable::Code;
 use multihash_derive::Hasher;
 use shutdown::Shutdown;
 use signal_hook_tokio::Signals;
-use std::str::FromStr;
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, str::FromStr, sync::Arc};
 use tokio::io::AsyncReadExt;
 use tracing::{debug, error, info, warn};
 
@@ -121,7 +121,7 @@ impl Network {
     }
 
     /// Return the default ethereum rpc providers for each network.
-    pub fn default_rpc_urls(&self) -> Result<Vec<String>> {
+    fn default_rpc_urls(&self) -> Result<Vec<String>> {
         match self {
             Network::Mainnet => {
                 anyhow::bail!("no Ethereum RPC URLs specified for Mainnet")
@@ -151,7 +151,7 @@ impl Network {
     }
 
     /// return the allowed chain ids for this network. or None for any
-    pub fn supported_chain_ids(&self) -> Option<Vec<ChainId>> {
+    fn supported_chain_ids(&self) -> Option<Vec<ChainId>> {
         match self {
             Network::Mainnet => Some(vec![
                 ChainId::from_str("eip155:1").expect("eip155:1 is a valid chain")
@@ -168,7 +168,7 @@ impl Network {
     }
 
     /// Get the network as a unique name.
-    pub fn name(&self) -> String {
+    fn name(&self) -> String {
         match self {
             Network::Mainnet => "mainnet".to_owned(),
             Network::TestnetClay => "testnet-clay".to_owned(),
@@ -176,6 +176,56 @@ impl Network {
             Network::Local => "local".to_owned(),
             Network::InMemory => "inmemory".to_owned(),
         }
+    }
+
+    pub async fn get_eth_rpc_providers(
+        &self,
+        ethereum_rpc_urls: Vec<String>,
+    ) -> Result<Vec<ChainInclusionProvider>> {
+        let ethereum_rpc_urls = if ethereum_rpc_urls.is_empty() {
+            self.default_rpc_urls()?
+        } else {
+            ethereum_rpc_urls
+        };
+
+        let mut providers = Vec::new();
+        for url in ethereum_rpc_urls {
+            match HttpEthRpc::try_new(&url).await {
+                Ok(provider) => {
+                    let provider_chain = provider.chain_id();
+                    if self
+                        .supported_chain_ids()
+                        .is_none_or(|ids| ids.contains(provider_chain))
+                    {
+                        info!(
+                            "Using ethereum rpc provider for chain: {} with url: {}",
+                            provider.chain_id(),
+                            provider.url()
+                        );
+                        let provider: ChainInclusionProvider = Arc::new(provider);
+                        providers.push(provider);
+                    } else {
+                        warn!("Eth RPC provider {} uses chainid {} which isn't supported by Ceramic network {:?}", url, provider_chain, self);
+                    }
+                }
+                Err(err) => {
+                    warn!("failed to create RPC client with url: '{url}': {:?}", err);
+                }
+            }
+        }
+
+        if providers.is_empty() {
+            if *self == Network::Local || *self == Network::InMemory {
+                warn!("No usable ethereum RPC provided for network {}. All TimeEvent validation will fail", self.name());
+            } else {
+                bail!(
+                    "No usable ethereum RPC configured for network {}",
+                    self.name()
+                );
+            }
+        }
+
+        Ok(providers)
     }
 }
 

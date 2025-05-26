@@ -13,7 +13,7 @@ const ComposeDbUrls = String(process.env.COMPOSEDB_URLS).split(',')
 const adminSeeds = String(process.env.COMPOSEDB_ADMIN_DID_SEEDS).split(',')
 
 // Skipped https://linear.app/3boxlabs/issue/WS1-1460/unskip-ceramic-cas-basic-integration
-describe('Ceramic<->CAS basic integration', () => {
+describe.skip('Ceramic<->CAS basic integration', () => {
   jest.setTimeout(1000 * 60 * 30) // 30 minutes (default max wait time for an anchor is 30 minutes)
 
   let ceramic: CeramicClient

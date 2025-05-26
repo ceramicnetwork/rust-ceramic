@@ -14,15 +14,22 @@
 # Fail script if any command fails
 set -e
 
+GIT_ROOT=$(git rev-parse --show-toplevel)
+SDK_DIR=$GIT_ROOT/sdk
+
 # Bump version of all packages
-for p in $(pwd)/sdk/packages/*
+for p in $SDK_DIR/packages/*
 do
   cd $p
   version=$(npm version minor)
 done
 
+# Run lint fix to fix the issues the npm version command creates
+cd $SDK_DIR
+pnpm run lint:fix
+
 # Ensure we are in the git root
-cd $(git rev-parse --show-toplevel)
+cd $GIT_ROOT
 
 echo "Preparing PR for SDK version $version"
 

@@ -110,7 +110,17 @@ pub struct ConclusionTime {
     pub init: ConclusionInit,
     /// Ordered list of previous events this event references.
     pub previous: Vec<Cid>,
-    //TODO Add temporal conclusions, i.e the block timestamp of this event
+    /// Proof of time event anchoring
+    pub time_proof: TimeProof,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Time event proof has been validated and resulted in a proof of time event anchoring
+pub struct TimeProof {
+    /// It is known that the time event existed before this time as a Unix timestamp in seconds.
+    pub before: u64,
+    /// Chain ID where this time event was anchored.
+    pub chain_id: String,
 }
 
 impl<'a> TryFrom<&'a unvalidated::Event<Ipld>> for ConclusionInit {
@@ -198,6 +208,8 @@ pub struct ConclusionEventBuilder {
     event_cid: BinaryBuilder,
     data: BinaryBuilder,
     previous: ListBuilder<BinaryBuilder>,
+    before: UInt64Builder,
+    chain_id: StringBuilder,
 }
 
 impl Default for ConclusionEventBuilder {
@@ -223,6 +235,8 @@ impl Default for ConclusionEventBuilder {
             data: BinaryBuilder::new(),
             previous: ListBuilder::new(BinaryBuilder::new())
                 .with_field(Field::new_list_field(DataType::Binary, false)),
+            before: UInt64Builder::new(),
+            chain_id: StringBuilder::new(),
         }
     }
 }
@@ -238,6 +252,8 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!data_event.previous.is_empty());
                 self.order.append_value(data_event.order);
+                self.before.append_null();
+                self.chain_id.append_null();
                 &data_event.init
             }
             ConclusionEvent::Time(time_event) => {
@@ -248,6 +264,12 @@ impl ConclusionEventBuilder {
                 }
                 self.previous.append(!time_event.previous.is_empty());
                 self.order.append_value(time_event.order);
+
+                // Add time proof data
+                self.before.append_value(time_event.time_proof.before);
+                self.chain_id
+                    .append_value(time_event.time_proof.chain_id.clone());
+
                 &time_event.init
             }
         };
@@ -279,6 +301,8 @@ impl ConclusionEventBuilder {
             ("event_type", Arc::new(self.event_type.finish()) as ArrayRef),
             ("data", Arc::new(self.data.finish()) as ArrayRef),
             ("previous", Arc::new(self.previous.finish()) as ArrayRef),
+            ("before", Arc::new(self.before.finish()) as ArrayRef),
+            ("chain_id", Arc::new(self.chain_id.finish()) as ArrayRef),
         ])
         .expect("unreachable, we should always construct a well formed struct array")
     }
@@ -463,6 +487,10 @@ mod tests {
                     ],
                 },
                 order: 2,
+                time_proof: TimeProof {
+                    before: 1744383131980,
+                    chain_id: "test:chain".to_owned(),
+                },
             }),
             ConclusionEvent::Data(ConclusionData {
                 event_cid: Cid::from_str(
@@ -498,14 +526,14 @@ mod tests {
 
         // Use expect_test to validate the output
         expect![[r#"
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | conclusion_event_order | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   |
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+
-            | 0                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |
-            | 1                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |
-            | 2                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              |
-            | 3                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |
-            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+"#]].assert_eq(&formatted);
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+
+            | conclusion_event_order | stream_cid                                                  | stream_type | controller    | dimensions                                                  | event_cid                                                   | event_type | data | previous                                                                                                                   | before        | chain_id   |
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+
+            | 0                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 0          | 123  |                                                                                                                            |               |            |
+            | 1                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q | 0          | 456  | [baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu]                                                              |               |            |
+            | 2                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di | 1          |      | [baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q]                                                              | 1744383131980 | test:chain |
+            | 3                      | baeabeif2fdfqe2hu6ugmvgozkk3bbp5cqi4udp5rerjmz4pdgbzf3fvobu | 2           | did:key:test1 | {controller: 6469643a6b65793a7465737431, model: 6d6f64656c} | baeabeiewqcj4bwhcssizv5kcyvsvm57bxghjpqshnbzkc6rijmwb4im4yq | 0          | 789  | [baeabeidtub3bnbojbickf6d4pqscaw6xpt5ksgido7kcsg2jyftaj237di, baeabeid2w5pgdsdh25nah7batmhxanbj3x2w2is3atser7qxboyojv236q] |               |            |
+            +------------------------+-------------------------------------------------------------+-------------+---------------+-------------------------------------------------------------+-------------------------------------------------------------+------------+------+----------------------------------------------------------------------------------------------------------------------------+---------------+------------+"#]].assert_eq(&formatted);
     }
 
     // Applies various transformations on a record batch of conclusion_events data to make it easier to
@@ -547,6 +575,8 @@ mod tests {
                     vec![col("previous")],
                 ))
                 .alias("previous"),
+                col("before"),
+                col("chain_id"),
             ])
             .unwrap()
             .sort(vec![col("conclusion_event_order").sort(true, true)])

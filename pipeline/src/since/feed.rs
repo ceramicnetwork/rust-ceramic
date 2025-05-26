@@ -17,35 +17,33 @@ use datafusion::{
         ExecutionPlan, Partitioning, PlanProperties,
     },
     prelude::Expr,
-    scalar::ScalarValue,
 };
 use futures::TryStreamExt as _;
 
 // A source for a streaming table.
 //
-// A call to [`Self::subscribe`] followed by a call to [`Self::since`] must produce all data where "index" is greater
+// A call to [`Self::subscribe`] followed by a call to [`Self::since`] must produce all data where "sort_column" is greater
 // than the highwater_mark. Duplicate data may be produced between the two calls.
 //
-// Subsequent data batches from subscribe must be in increasing "index" order.
+// Subsequent data batches from subscribe must be in increasing "sort_column" order.
 //
 // TODO add error handling
 #[async_trait]
 pub trait FeedTableSource: Clone + std::fmt::Debug + Sync + Send + 'static {
     fn schema(&self) -> SchemaRef;
-    // Subscribe to all new data for this table in increasing "index" order since offset.
-    // All received RecordBatches must contain and be ordered by an "index" u64 column.
+
+    // Subscribe to all new data for this table in increasing `sort_column` order since offset.
+    // All received RecordBatches must contain and be ordered by an `sort_column` u64 column.
     // The projection is a list of column indexes that should be produced.
     async fn subscribe_since(
         &self,
         projection: Option<Vec<usize>>,
-        offset: Option<u64>,
+        filter: Option<Vec<Expr>>,
         limit: Option<usize>,
     ) -> anyhow::Result<SendableRecordBatchStream>;
 }
 
 /// A table that when queried produces an unbounded stream of data.
-/// It is assumed that the table contains an "index" column and new data arrives in increasing
-/// "index" order.
 #[derive(Debug)]
 pub struct FeedTable<S> {
     source: S,
@@ -53,32 +51,6 @@ pub struct FeedTable<S> {
 impl<S> FeedTable<S> {
     pub fn new(source: S) -> Self {
         Self { source }
-    }
-    fn highwater_mark_from_expr(expr: &Expr) -> Option<u64> {
-        let find_highwater_mark = |col: &Expr, lit: &Expr| {
-            col.try_as_col()
-                .is_some_and(|column| column.name == "index")
-                .then(|| {
-                    if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
-                        highwater_mark.to_owned()
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-        };
-        match expr {
-            Expr::BinaryExpr(expr) => match expr.op {
-                datafusion::logical_expr::Operator::Gt => {
-                    find_highwater_mark(expr.left.as_ref(), expr.right.as_ref())
-                }
-                datafusion::logical_expr::Operator::LtEq => {
-                    find_highwater_mark(expr.right.as_ref(), expr.left.as_ref())
-                }
-                _ => None,
-            },
-            _ => None,
-        }
     }
 }
 
@@ -111,13 +83,8 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
         Ok(Arc::new(StreamExec {
             source: self.source.clone(),
             projection: projection.cloned(),
-            offset: filters
-                .iter()
-                .filter_map(Self::highwater_mark_from_expr)
-                .next()
-                .map(|hm| hm as i64)
-                .unwrap_or(0),
             limit,
+            filters: filters.to_vec(),
             properties: PlanProperties::new(
                 EquivalenceProperties::new(schema),
                 Partitioning::UnknownPartitioning(1),
@@ -134,13 +101,9 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
     ) -> datafusion::common::Result<Vec<TableProviderFilterPushDown>> {
         Ok(filters
             .iter()
-            .map(|expr| Self::highwater_mark_from_expr(expr))
-            .map(|highwater_mark| {
-                if highwater_mark.is_some() {
-                    TableProviderFilterPushDown::Exact
-                } else {
-                    TableProviderFilterPushDown::Unsupported
-                }
+            .map(|expr| match expr {
+                Expr::BinaryExpr(_binary_expr) => TableProviderFilterPushDown::Exact,
+                _ => TableProviderFilterPushDown::Inexact,
             })
             .collect())
     }
@@ -150,8 +113,8 @@ impl<S: FeedTableSource> TableProvider for FeedTable<S> {
 pub struct StreamExec<S> {
     source: S,
     projection: Option<Vec<usize>>,
-    offset: i64,
     limit: Option<usize>,
+    filters: Vec<Expr>,
     properties: PlanProperties,
 }
 
@@ -186,11 +149,22 @@ impl<S: FeedTableSource> ExecutionPlan for StreamExec<S> {
     ) -> datafusion::error::Result<datafusion::execution::SendableRecordBatchStream> {
         let source = self.source.clone();
         let projection = self.projection.clone();
-        let offset = self.offset as u64;
         let limit = self.limit;
+        let filters = self.filters.clone();
+
+        tracing::trace!(?limit, ?filters, "Starting stream execution");
+
         let stream = try_stream! {
-            let mut stream = source.subscribe_since(projection, Some(offset), limit).await?;
+            let mut stream = source.subscribe_since(projection, Some(filters), limit).await?;
+
             while let Some(batch) = stream.try_next().await? {
+                tracing::trace!(
+                    rows = batch.num_rows(),
+                    columns = batch.num_columns(),
+                    "Received batch"
+                );
+
+
                 yield batch
             }
         };

@@ -1,7 +1,7 @@
 name: Publish SDK
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
 
 env:
   CI: true
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         working-directory: sdk
         run: |
-            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
         uses: actions/cache@v4
         with:
@@ -107,7 +107,7 @@ jobs:
         shell: bash
         working-directory: sdk
         run: |
-            echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
       - name: Setup pnpm cache
         uses: actions/cache@v4
         with:
@@ -136,11 +136,7 @@ jobs:
           if [[ $(echo "$COMMIT_MESSAGE" | grep 'chore(sdk): version v') ]]; then
             npm config set provenance true
             echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            for p in $(pwd)/packages/*
-            do
-              cd $p
-              npm publish --access public
-            done
+            pnpm publish -r --access public
           else
             echo 'Not an sdk release commit, skipping...'
           fi

@@ -1,13 +1,13 @@
 {
   "name": "@ceramic-sdk/test-utils",
-  "version": "0.2.0",
+  "version": "0.10.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "test"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/test-utils"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/test-utils"
   },
   "type": "module",
   "main": "dist/index.js",

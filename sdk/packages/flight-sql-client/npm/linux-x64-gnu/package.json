@@ -1,6 +1,6 @@
 {
   "name": "@ceramic-sdk/flight-sql-client-linux-x64-gnu",
-  "version": "0.2.0",
+  "version": "0.10.0",
   "os": ["linux"],
   "cpu": ["x64"],
   "main": "flight-sql-client.linux-x64-gnu.node",
@@ -17,8 +17,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicnetwork/ceramic-sdk",
-    "directory": "packages/flight-sql-client/npm/linux-x64-gnu"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/flight-sql-client/npm/linux-x64-gnu"
   },
   "libc": ["glibc"]
 }

@@ -1,4 +1,4 @@
-**@ceramic-sdk/model-instance-client v0.2.1** • **Docs**
+**@ceramic-sdk/model-instance-client v0.7.0** • **Docs**
 
 ***
 

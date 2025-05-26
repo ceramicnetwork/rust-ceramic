@@ -1,6 +1,6 @@
 {
   "name": "@ceramic-sdk/flight-sql-client",
-  "version": "0.2.0",
+  "version": "0.10.0",
   "description": "A FlightSQL client. Currently only supports Node.js",
   "main": "index.js",
   "types": "index.d.ts",
@@ -52,5 +52,10 @@
         }
       ]
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/flight-sql-client"
   }
 }

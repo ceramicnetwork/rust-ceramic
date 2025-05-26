@@ -1,14 +1,14 @@
 {
   "name": "@ceramic-sdk/test-vectors",
-  "version": "0.2.0",
+  "version": "0.10.0",
   "private": true,
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "test"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/test-vectors"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/test-vectors"
   },
   "type": "module",
   "main": "dist/index.js",

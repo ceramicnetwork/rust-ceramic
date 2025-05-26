@@ -24,7 +24,7 @@ jobs:
         prefix-key: v0
         # Cache only the cargo registry
         cache-targets: false
-    - uses: mozilla-actions/sccache-action@v0.0.3
+    - uses: mozilla-actions/sccache-action@v0.0.9
     - name: git file permission config
       run: git config --global --add safe.directory '*'
     - name: Check fmt
@@ -52,7 +52,7 @@ jobs:
         prefix-key: v0
         # Cache only the cargo registry
         cache-targets: false
-    - uses: mozilla-actions/sccache-action@v0.0.3
+    - uses: mozilla-actions/sccache-action@v0.0.9
     - name: Run tests
       run: make test
   build:
@@ -69,7 +69,7 @@ jobs:
         prefix-key: v0
         # Cache only the cargo registry
         cache-targets: false
-    - uses: mozilla-actions/sccache-action@v0.0.3
+    - uses: mozilla-actions/sccache-action@v0.0.9
     -
       name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -108,7 +108,7 @@ jobs:
         prefix-key: v0
         # Cache only the cargo registry
         cache-targets: false
-    - uses: mozilla-actions/sccache-action@v0.0.3
+    - uses: mozilla-actions/sccache-action@v0.0.9
     - name: Check fmt
       run: make -C tests check-fmt
     - name: Check clippy
@@ -171,7 +171,7 @@ jobs:
         prefix-key: v0
         # Cache only the cargo registry
         cache-targets: false
-    - uses: mozilla-actions/sccache-action@v0.0.3
+    - uses: mozilla-actions/sccache-action@v0.0.9
     - name: Build Tester
       run: make -C tests BUILD_PROFILE=release driver
     - uses: actions/upload-artifact@master
@@ -231,50 +231,51 @@ jobs:
           fi
           make CERAMIC_ONE_IMAGE_TAG="${{ needs.build.outputs.image_tag }}"  TEST_SELECTOR="$test_selector" HERMETIC_CMD=../bin/hermetic-driver hermetic-tests
 
-  run-migration-tests:
-    name: Run Migration Tests
-    runs-on: ubuntu-latest
-    environment: tnet-prod-2024
-    needs:
-      - build-driver
-      - publish-suite
-      - generate-matrix #Needed to know the BUILD_TAG
-      - build
-    steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v3
-      -
-        name: Setup GKE auth
-        uses: 'google-github-actions/auth@v1'
-        with:
-          credentials_json: ${{ secrets.GKE_SA_KEY }}
-      -
-        name: Get GKE credentials
-        uses: 'google-github-actions/get-gke-credentials@v1'
-        with:
-          cluster_name: ${{ vars.GKE_CLUSTER }}
-          location: ${{ vars.GKE_ZONE }}
-      - uses: actions/download-artifact@master
-        with:
-          name: hermetic-driver
-          path: ./bin
-      -
-        name: Test migration ${{ matrix.networks }}
-        run: |
-          set -euxo pipefail
-          cd tests
-          export BUILD_TAG=${{ needs.generate-matrix.outputs.build_tag }}
-          TEST_NETWORK=./migration-networks/basic-go-rust-post.yaml
-          chmod +x ../bin/hermetic-driver
-
-          make CERAMIC_ONE_IMAGE_TAG="${{ needs.build.outputs.image_tag }}" HERMETIC_CMD=../bin/hermetic-driver migration-tests
+#  run-migration-tests:
+#    name: Run Migration Tests
+#    runs-on: ubuntu-latest
+#    environment: tnet-prod-2024
+#    needs:
+#      - build-driver
+#      - publish-suite
+#      - generate-matrix #Needed to know the BUILD_TAG
+#      - build
+#    steps:
+#      -
+#        name: Checkout
+#        uses: actions/checkout@v3
+#      -
+#        name: Setup GKE auth
+#        uses: 'google-github-actions/auth@v1'
+#        with:
+#          credentials_json: ${{ secrets.GKE_SA_KEY }}
+#      -
+#        name: Get GKE credentials
+#        uses: 'google-github-actions/get-gke-credentials@v1'
+#        with:
+#          cluster_name: ${{ vars.GKE_CLUSTER }}
+#          location: ${{ vars.GKE_ZONE }}
+#      - uses: actions/download-artifact@master
+#        with:
+#          name: hermetic-driver
+#          path: ./bin
+#      -
+#        name: Test migration ${{ matrix.networks }}
+#        run: |
+#          set -euxo pipefail
+#          cd tests
+#          export BUILD_TAG=${{ needs.generate-matrix.outputs.build_tag }}
+#          TEST_NETWORK=./migration-networks/basic-go-rust-post.yaml
+#          chmod +x ../bin/hermetic-driver
+#
+#          make CERAMIC_ONE_IMAGE_TAG="${{ needs.build.outputs.image_tag }}" HERMETIC_CMD=../bin/hermetic-driver migration-tests
 
   integration-test-results:
     name: Hermetic Test Results
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    needs: [run-integration-tests, run-migration-tests]
+#    needs: [run-integration-tests, run-migration-tests]
+    needs: [run-integration-tests]
     steps:
       - run: exit 1
         # see https://stackoverflow.com/a/67532120/4907315

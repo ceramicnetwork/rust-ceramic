@@ -42,6 +42,7 @@ members = [
 #   e.g. anyhow's backtrace feature.
 
 ahash = "0.8"
+alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 anyhow = { version = "1" }
 arrow = { version = "54", features = ["prettyprint"] }
 arrow-array = "54"
@@ -252,7 +253,7 @@ zeroize = "1.4"
 
 
 [workspace.package]
-version = "0.54.0"
+version = "0.54.2"
 edition = "2021"
 authors = [
     "Danny Browning <dbrowning@3box.io>",
@@ -269,9 +270,3 @@ repository = "https://github.com/3box/rust-ceramic"
 inherits = "release"
 debug = true
 strip = "none"
-
-[patch."https://github.com/datafusion-contrib/datafusion-flight-sql-server.git"]
-datafusion-flight-sql-server = { git = "https://github.com/nathanielc/datafusion-flight-sql-server.git", branch = "chore/datafusion-45" }
-
-[patch.crates-io]
-datafusion-federation = { git = "https://github.com/nathanielc/datafusion-federation.git", branch = "chore/datafusion-45" }

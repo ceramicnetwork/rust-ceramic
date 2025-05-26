@@ -1,13 +1,13 @@
 {
   "name": "@ceramic-sdk/stream-client",
-  "version": "0.2.1",
+  "version": "0.10.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "stream", "client"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/ceramicstudio/ceramic-sdk",
-    "directory": "packages/stream-client"
+    "url": "https://github.com/ceramicnetwork/rust-ceramic",
+    "directory": "sdk/packages/stream-client"
   },
   "type": "module",
   "main": "dist/index.js",

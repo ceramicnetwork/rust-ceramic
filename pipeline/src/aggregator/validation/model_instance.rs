@@ -82,6 +82,7 @@ impl ModelInstance {
         }
         let is_unique_empty = unique.map(|u| u.is_empty()).unwrap_or(true);
         // Check unique is set/unset appriopriately
+        // TODO: this doesn't check that set/list/single are VALID for the entire stream
         let account_relation = model.account_relation();
         match account_relation {
             ModelAccountRelation::Single => {
@@ -116,6 +117,41 @@ impl ModelInstance {
                     .into_iter()
                     .map(|field| format!("Set account relation field '{field}' cannot be modified"))
                     .collect::<Vec<String>>())
+            }
+
+            if let Some(content) = &self.content {
+                let content_obj = maybe_fail!(content
+                    .as_object()
+                    .ok_or_validation_failure("Content must be an object"));
+
+                let unique_content = fields
+                    .iter()
+                    .map(|field| {
+                        content_obj
+                            .get(field)
+                            .map(|value| match value {
+                                serde_json::Value::String(s) => s.clone(),
+                                serde_json::Value::Bool(b) => b.to_string(),
+                                serde_json::Value::Number(n) => n.to_string(),
+                                // technically the JS code would do [object Object] and arrays would be joined with commas (e.g. "1,2,3")
+                                // but I don't think this is supposed to be supported for unique fields (?)
+                                _ => "".to_string(),
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect::<Vec<String>>()
+                    .join("|");
+                let unique_str =
+                    String::from_utf8_lossy(unique.expect("unique asserted not null above"));
+
+                if unique_content != unique_str {
+                    fail!("Unique content fields value does not match metadata. Expected '{unique_str}' but found '{unique_content}'");
+                }
+            } else {
+                // missing content on init event is fine
+                if event_height != 0 {
+                    fail!("Missing content for SET account relation");
+                }
             }
         }
         ValidationResult::Pass(())
