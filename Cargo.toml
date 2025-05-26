@@ -42,6 +42,7 @@ members = [
 #   e.g. anyhow's backtrace feature.
 
 ahash = "0.8"
+alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
 anyhow = { version = "1" }
 arrow = { version = "54", features = ["prettyprint"] }
 arrow-array = "54"

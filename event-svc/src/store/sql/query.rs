@@ -274,3 +274,68 @@ impl ReconQuery {
         }
     }
 }
+
+/// Represents access to the ceramic_one_chain_proof and ceramic_one_chain_timestamp tables
+/// In the future, transactions could be stored without block information, and retried until we discover something.
+/// For now, we only store the transaction when we discover the block information and timestamp.
+pub struct ChainProofQuery;
+
+impl ChainProofQuery {
+    /// Requires binding 3 parameters
+    ///     $1: chain_id
+    ///     $2: block_hash
+    ///     $3: timestamp
+    pub fn upsert_timestamp() -> &'static str {
+        r#"
+            INSERT INTO ceramic_one_chain_timestamp (
+                chain_id, block_hash, timestamp
+            ) VALUES (
+                $1, $2, $3
+            ) ON CONFLICT DO UPDATE SET timestamp = $3;
+        "#
+    }
+
+    /// Requires binding 4 parameters
+    ///     $1: chain_id
+    ///     $2: block_hash
+    ///     $3: transaction_hash
+    ///     $4: transaction_input
+    pub fn upsert_proof() -> &'static str {
+        r#"
+            INSERT INTO ceramic_one_chain_proof (
+                chain_id, block_hash, transaction_hash, transaction_input
+            ) VALUES (
+                $1, $2, $3, $4
+            ) ON CONFLICT DO UPDATE SET block_hash = $2;
+        "#
+    }
+
+    /// Requires binding 2 parameters
+    ///     $1: chain_id
+    ///     $2: transaction_hash
+    pub fn by_chain_id_and_tx_hash() -> &'static str {
+        r#"
+            SELECT 
+                p.chain_id,
+                p.transaction_hash,
+                p.transaction_input,
+                p.block_hash,
+                COALESCE(
+                    (SELECT t.timestamp 
+                     FROM ceramic_one_chain_timestamp t 
+                     WHERE t.chain_id = p.chain_id 
+                     AND t.block_hash = p.block_hash),
+                    NULL
+                ) as timestamp
+            FROM ceramic_one_chain_proof p
+            WHERE p.chain_id = $1 
+            AND p.transaction_hash = $2 
+            AND EXISTS (
+                SELECT 1
+                FROM ceramic_one_chain_timestamp t
+                WHERE t.chain_id = p.chain_id
+                AND t.block_hash = p.block_hash
+            )
+        "#
+    }
+}

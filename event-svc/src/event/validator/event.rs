@@ -2,23 +2,23 @@ use std::sync::Arc;
 
 use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
-use ceramic_validation::eth_rpc;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
 use tokio::try_join;
 
-use crate::event::validator::ChainInclusionProvider;
-use crate::store::EventAccess;
 use crate::{
+    blockchain::eth_rpc,
+    eth_rpc::ChainInclusionProof,
     event::{
         service::{ValidationError, ValidationRequirement},
         validator::{
             grouped::{GroupedEvents, SignedValidationBatch, TimeValidationBatch},
             signed::SignedEventValidator,
             time::TimeEventValidator,
+            ChainInclusionProvider,
         },
     },
-    store::EventInsertable,
+    store::{EventAccess, EventInsertable},
     Result,
 };
 
@@ -31,6 +31,8 @@ pub struct ValidatedEvents {
     pub unvalidated: Vec<UnvalidatedEvent>,
     /// Events that failed validation
     pub invalid: Vec<ValidationError>,
+    /// The proofs for the validated time events that can be stored for future time stamping
+    pub proofs: Vec<ChainInclusionProof>,
 }
 
 #[derive(Debug)]
@@ -107,6 +109,7 @@ impl ValidatedEvents {
             valid: Vec::with_capacity(valid),
             unvalidated: Vec::with_capacity(valid / 4),
             invalid: Vec::new(),
+            proofs: Vec::new(),
         }
     }
 
@@ -114,6 +117,7 @@ impl ValidatedEvents {
         self.valid.extend(other.valid);
         self.invalid.extend(other.invalid);
         self.unvalidated.extend(other.unvalidated);
+        self.proofs.extend(other.proofs);
     }
 }
 
@@ -124,7 +128,7 @@ pub struct EventValidator {
     /// It contains the ethereum RPC providers and lives for the live of the [`EventValidator`].
     /// The [`SignedEventValidator`] is currently constructed on a per validation request basis
     /// as it caches and drops events per batch.
-    time_event_verifier: TimeEventValidator,
+    time_event_validator: TimeEventValidator,
 }
 
 impl EventValidator {
@@ -133,41 +137,30 @@ impl EventValidator {
         event_access: Arc<EventAccess>,
         ethereum_rpc_providers: Vec<ChainInclusionProvider>,
     ) -> Result<Self> {
-        let time_event_verifier = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
+        let time_event_validator = TimeEventValidator::new_with_providers(ethereum_rpc_providers);
 
         Ok(Self {
             event_access,
-            time_event_verifier,
+            time_event_validator,
         })
     }
 
     /// Validates the events with the given validation requirement
-    /// If the [`ValidationRequirement`] is None, it just returns every event as valid
+    /// Regardless of the validation requirement, time events are always validated.
+    /// If the [`ValidationRequirement`] is None, it just returns every data event as valid.
     pub(crate) async fn validate_events(
         &self,
         validation_req: Option<&ValidationRequirement>,
         parsed_events: Vec<UnvalidatedEvent>,
     ) -> Result<ValidatedEvents> {
-        let validation_req = if let Some(req) = validation_req {
-            req
-        } else {
-            // we don't validate so we just return done
-            return Ok(ValidatedEvents {
-                valid: parsed_events
-                    .into_iter()
-                    .map(ValidatedEvent::from_unvalidated_unchecked)
-                    .collect(),
-                unvalidated: Vec::new(),
-                invalid: Vec::new(),
-            });
-        };
-
         let mut validated = ValidatedEvents::new_with_expected_valid(parsed_events.len());
-        // partition the events by type of validation needed and delegate to validators
+
+        // Partition the events by type of validation needed and delegate to validators
         let grouped = GroupedEvents::from(parsed_events);
 
         let (validated_signed, validated_time) = try_join!(
             self.validate_signed_events(grouped.signed_batch, validation_req),
+            // Time events are always validated
             self.validate_time_events(grouped.time_batch)
         )?;
         validated.extend_with(validated_signed);
@@ -183,23 +176,33 @@ impl EventValidator {
     async fn validate_signed_events(
         &self,
         events: SignedValidationBatch,
-        validation_req: &ValidationRequirement,
+        validation_req: Option<&ValidationRequirement>,
     ) -> Result<ValidatedEvents> {
-        let opts = if validation_req.check_exp {
-            ceramic_validation::VerifyJwsOpts::default()
+        if let Some(req) = validation_req {
+            let opts = if req.check_exp {
+                ceramic_validation::VerifyJwsOpts::default()
+            } else {
+                ceramic_validation::VerifyJwsOpts {
+                    at_time: ceramic_validation::AtTime::SkipTimeChecks,
+                    ..Default::default()
+                }
+            };
+            SignedEventValidator::validate_events(
+                Arc::clone(&self.event_access),
+                &opts,
+                events,
+                req.require_local_init,
+            )
+            .await
         } else {
-            ceramic_validation::VerifyJwsOpts {
-                at_time: ceramic_validation::AtTime::SkipTimeChecks,
-                ..Default::default()
-            }
-        };
-        SignedEventValidator::validate_events(
-            Arc::clone(&self.event_access),
-            &opts,
-            events,
-            validation_req.require_local_init,
-        )
-        .await
+            // If no validation requirement is specified, we assume all events are valid.
+            Ok(ValidatedEvents {
+                valid: events.into(),
+                unvalidated: Vec::new(),
+                invalid: Vec::new(),
+                proofs: Vec::new(),
+            })
+        }
     }
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {
@@ -207,12 +210,12 @@ impl EventValidator {
         for time_event in events.0 {
             // TODO: better transient error handling from RPC client
             match self
-                .time_event_verifier
+                .time_event_validator
                 .validate_chain_inclusion(time_event.as_time())
                 .await
             {
-                Ok(_t) => {
-                    // TODO(AES-345): Someday, we will use `t.as_unix_ts()` and care about the actual timestamp, but for now we just consider it valid
+                Ok(t) => {
+                    validated_events.proofs.push(t);
                     validated_events.valid.push(time_event.into());
                 }
                 Err(err) => {

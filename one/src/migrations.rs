@@ -15,7 +15,7 @@ use multihash_codetable::{Code, Multihash, MultihashDigest};
 use tokio::io::AsyncBufReadExt;
 use tracing::{debug, info};
 
-use crate::{default_directory, DBOpts, Info, LogOpts};
+use crate::{default_directory, DBOpts, Info, LogOpts, Network};
 
 #[derive(Subcommand, Debug)]
 pub enum EventsCommand {
@@ -109,6 +109,7 @@ pub struct FromIpfsOpts {
 
     /// Optional list of model stream ids. Only events from these models will be migrated.
     /// If the list is empty all events are migrated.
+    /// The 'metamodel' stream id is `kh4q0ozorrgaq2mezktnrmdwleo1d` if you want to migrate models.
     #[clap(long, value_delimiter = ',', env = "CERAMIC_ONE_MODEL_FILTER")]
     model_filter: Vec<String>,
 
@@ -117,10 +118,20 @@ pub struct FromIpfsOpts {
     #[clap(long, env = "CERAMIC_ONE_VALIDATE_SIGNATURES")]
     validate_signatures: bool,
 
-    /// Whether to validate the chain of time events.
+    /// Whether to validate the chain of time events matches the expected CAIP2 chain id.
     /// Events with invalid chains will be skipped and counted as errors.
-    #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAINS")]
+    /// For example, on mainnet, events are expected to have a chain id of 'eip155:1'.
+    #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAIN")]
     validate_chain: bool,
+
+    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+    )]
+    ethereum_rpc_urls: Vec<String>,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -163,13 +174,18 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool(SqliteOpts::default()).await?;
+    let rpc_providers = opts
+        .network
+        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .await?;
+
     // TODO: feature flags here? or just remove this entirely when enabling
     let event_svc = Arc::new(
         EventService::try_new(
             sqlite_pool,
             ceramic_event_svc::UndeliveredEventReview::Skip,
             false,
-            vec![],
+            rpc_providers,
         )
         .await?,
     );
@@ -195,15 +211,27 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
                 .collect::<Result<Vec<Vec<u8>>, _>>()?,
             opts.validate_signatures,
             opts.validate_chain
-                .then(|| {
-                    opts.network
-                        .supported_chain_ids()
-                        .map(|chains| chains.into_iter().map(|chain| chain.to_string()).collect())
-                })
+                .then(|| allowed_chains(opts.network))
                 .flatten(),
         )
         .await?;
     Ok(())
+}
+
+/// Returns the allowed chain ids (historically) for the given network.
+/// [`Network::supported_chain_ids`] is for current chains
+fn allowed_chains(network: Network) -> Option<Vec<String>> {
+    match network {
+        Network::Mainnet => Some(vec!["eip155:1".to_string()]),
+        Network::TestnetClay => Some(vec![
+            "eip155:3".to_string(),
+            "eip155:5".to_string(),
+            "eip155:100".to_string(),
+        ]),
+        Network::DevUnstable => Some(vec!["eip155:11155111".to_string()]),
+        Network::Local => None,
+        Network::InMemory => None,
+    }
 }
 
 struct FSBlockStore {

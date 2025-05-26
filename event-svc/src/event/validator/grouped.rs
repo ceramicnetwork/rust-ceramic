@@ -104,11 +104,22 @@ pub struct TimeValidationBatch(pub(crate) Vec<Time>);
 
 #[derive(Debug)]
 pub struct SignedValidationBatch {
-    pub data: Vec<SignedData>,
-    pub init: Vec<SignedInit>,
+    pub(crate) data: Vec<SignedData>,
+    pub(crate) init: Vec<SignedInit>,
     /// Possibly needed to verify data event controllers as these
     /// don't yet exist on disk, but the signatures aren't checked.
-    pub unsigned: Vec<Unsigned>,
+    pub(crate) unsigned: Vec<Unsigned>,
+}
+
+impl From<SignedValidationBatch> for Vec<ValidatedEvent> {
+    fn from(value: SignedValidationBatch) -> Self {
+        let mut events =
+            Vec::with_capacity(value.data.len() + value.init.len() + value.unsigned.len());
+        events.extend(value.data.into_iter().map(Into::into));
+        events.extend(value.init.into_iter().map(Into::into));
+        events.extend(value.unsigned.into_iter().map(Into::into));
+        events
+    }
 }
 
 impl From<Vec<UnvalidatedEvent>> for GroupedEvents {

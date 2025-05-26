@@ -42,7 +42,7 @@ use crate::{
 pub use crate::since::SubscribeSinceMsg;
 pub use event::{
     conclusion_events_to_record_batch, ConclusionData, ConclusionEvent, ConclusionInit,
-    ConclusionTime,
+    ConclusionTime, TimeProof,
 };
 pub use table::ConclusionFeed;
 
@@ -169,7 +169,6 @@ actor_envelope! {
     ConcluderRecorder,
     NewEvents => NewEventsMsg,
     SubscribeSince => SubscribeSinceMsg,
-    EventsSince => EventsSinceMsg,
 }
 
 /// Notify actor of new events
@@ -329,23 +328,6 @@ async fn events_since(
     Ok(conclusion_events.execute_stream().await?)
 }
 
-/// Request the events since a highwater mark
-#[derive(Debug)]
-pub struct EventsSinceMsg {
-    /// Optional filters to apply to the query
-    pub filters: Vec<Expr>,
-}
-impl Message for EventsSinceMsg {
-    type Result = anyhow::Result<SendableRecordBatchStream>;
-}
-
-#[async_trait]
-impl Handler<EventsSinceMsg> for Concluder {
-    async fn handle(&mut self, message: EventsSinceMsg) -> <EventsSinceMsg as Message>::Result {
-        events_since(&self.ctx, Some(message.filters), None).await
-    }
-}
-
 #[async_trait]
 impl FeedTableSource for ConcluderHandle {
     fn schema(&self) -> SchemaRef {
@@ -381,6 +363,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
+        concluder::TimeProof,
         pipeline_ctx,
         tests::{MockConclusionFeed, TestContext},
         ConclusionData, ConclusionFeedSource, ConclusionInit, ConclusionTime, Metrics,
@@ -466,6 +449,10 @@ mod tests {
                         "baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi",
                     )
                     .unwrap()],
+                    time_proof: TimeProof {
+                        before: 1744383131980,
+                        chain_id: "test:chain".to_owned(),
+                    },
                 })])
             });
         mock_feed
