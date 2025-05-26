@@ -241,7 +241,7 @@ pub struct DaemonOpts {
 
     /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
     /// 
-    /// Note: only the first valid RPC URL will be used by the time event validator
+    /// Note: only the first valid RPC URL for a particular chain will be used by the time event validator
     #[arg(
         long,
         use_value_delimiter = true,

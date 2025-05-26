@@ -331,15 +331,7 @@ impl FSBlockStore {
 
 async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> {
     if !block_path.is_file() {
-        if block_path.is_absolute() {
-            warn!(
-                path = %block_path.display(),
-                "block file not found, skipping");
-        } else {
-            warn!(
-                path = %block_path.display(),
-                "block file not found at relative path, skipping");
-        }
+        warn!(path = %block_path.display(), relative_path = %!block_path.is_absolute(), "block file not found, skipping");
         return Ok(None);
     }
 
