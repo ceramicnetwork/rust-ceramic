@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.0] - 2025-05-26
+
+### 🚀 Features
+
+- Conflict resolution scaffolding ([#687](https://github.com/ceramicnetwork/rust-ceramic/issues/687))
+
+### 🐛 Bug Fixes
+
+- Update more sdk repo urls ([#703](https://github.com/ceramicnetwork/rust-ceramic/issues/703))
+- Skip private sdk packages ([#705](https://github.com/ceramicnetwork/rust-ceramic/issues/705))
+- *(sdk)* Use recursive pnpm publish instead of npm publish
+- Random things like feed queries, query CLI, migration logging, deps ([#708](https://github.com/ceramicnetwork/rust-ceramic/issues/708))
+- *(sdk)* Add missing pnpm prepare directive
+- Modify set account relation validation ([#713](https://github.com/ceramicnetwork/rust-ceramic/issues/713))
+- Prevent panic on duplicate tracing initialization ([#718](https://github.com/ceramicnetwork/rust-ceramic/issues/718))
+
+### 📚 Documentation
+
+- Improved docs and logging for `migrations from-ipfs` ([#695](https://github.com/ceramicnetwork/rust-ceramic/issues/695))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(sdk)* Version v0.6.0 ([#704](https://github.com/ceramicnetwork/rust-ceramic/issues/704))
+- *(sdk)* Version v0.7.0 ([#706](https://github.com/ceramicnetwork/rust-ceramic/issues/706))
+- Sdk docs update ([#709](https://github.com/ceramicnetwork/rust-ceramic/issues/709))
+- *(sdk)* Version v0.8.0 ([#711](https://github.com/ceramicnetwork/rust-ceramic/issues/711))
+- *(sdk)* Version v0.9.0 ([#712](https://github.com/ceramicnetwork/rust-ceramic/issues/712))
+- *(sdk)* Version v0.10.0 ([#720](https://github.com/ceramicnetwork/rust-ceramic/issues/720))
+
+## [0.5.0] - 2025-03-22
+
+### 🐛 Bug Fixes
+
+- Use correct paths in sdk release script ([#699](https://github.com/ceramicnetwork/rust-ceramic/issues/699))
+- Update more sdk repo urls ([#701](https://github.com/ceramicnetwork/rust-ceramic/issues/701))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(sdk)* Version v0.4.0 ([#700](https://github.com/ceramicnetwork/rust-ceramic/issues/700))
+- *(sdk)* Version v0.5.0 ([#702](https://github.com/ceramicnetwork/rust-ceramic/issues/702))
+
 ## [0.54.2] - 2025-03-21
 
 ### 🐛 Bug Fixes
@@ -11,6 +52,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - *(sdk)* Version v0.3.0 ([#694](https://github.com/ceramicnetwork/rust-ceramic/issues/694))
+- Version v0.54.2 ([#697](https://github.com/ceramicnetwork/rust-ceramic/issues/697))
 
 ## [0.54.1] - 2025-03-21
 
