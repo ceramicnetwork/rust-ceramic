@@ -13,7 +13,7 @@ use clap::{Args, Subcommand};
 use futures::{stream::BoxStream, StreamExt};
 use multihash_codetable::{Code, Multihash, MultihashDigest};
 use tokio::io::AsyncBufReadExt;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{default_directory, DBOpts, Info, LogOpts, Network};
 
@@ -66,13 +66,14 @@ pub struct FromIpfsOpts {
     #[command(flatten)]
     log_opts: LogOpts,
 
-    /// Path of file containing list of newline-delimited file paths to migrate.
+    /// Path of file containing list of newline-delimited paths to blocks to migrate. The paths must either be absolute,
+    /// or relative to the current directory where the migration command is run.
     ///
     /// See below for example usage when running a migration for a live IPFS node. Multiple migration runs using lists
     /// of files that have changed between runs is useful for incremental migrations. This method can also be used for
     /// a final migration after shutting down the IPFS node so that all inflight blocks are migrated to the new C1 node.
     ///
-    /// # Get list of files in sorted order
+    /// # Get list of absolute file paths to blocks, in sorted order
     ///
     /// find ~/.ipfs/blocks -type f | sort > first_run_files.txt
     ///
@@ -95,6 +96,8 @@ pub struct FromIpfsOpts {
     input_file_list_path: Option<PathBuf>,
 
     /// Offset within the input files to start from
+    ///
+    /// Note: this is useful for resuming a migration from a previous run that was interrupted.
     #[clap(
         long,
         short = 's',
@@ -109,7 +112,9 @@ pub struct FromIpfsOpts {
 
     /// Optional list of model stream ids. Only events from these models will be migrated.
     /// If the list is empty all events are migrated.
-    /// The 'metamodel' stream id is `kh4q0ozorrgaq2mezktnrmdwleo1d` if you want to migrate models.
+    ///
+    /// Note: if filtering, you likely also want to include the metamodel stream id
+    /// (kh4q0ozorrgaq2mezktnrmdwleo1d), so the actual model streams are also included in the migration.
     #[clap(long, value_delimiter = ',', env = "CERAMIC_ONE_MODEL_FILTER")]
     model_filter: Vec<String>,
 
@@ -119,8 +124,11 @@ pub struct FromIpfsOpts {
     validate_signatures: bool,
 
     /// Whether to validate the chain of time events matches the expected CAIP2 chain id.
-    /// Events with invalid chains will be skipped and counted as errors.
-    /// For example, on mainnet, events are expected to have a chain id of 'eip155:1'.
+    ///
+    /// Events with proofs from invalid chains will be skipped and counted as errors.
+    /// For example, if some blocks being imported were anchored against an inmemory
+    /// store or a different network than configured with the `--network` option.
+    /// On mainnet, events are expected to have a chain id of 'eip155:1'.
     #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAIN")]
     validate_chain: bool,
 
@@ -350,17 +358,18 @@ impl FSBlockStore {
 
 async fn block_from_path(block_path: PathBuf) -> Result<Option<(Cid, Vec<u8>)>> {
     if !block_path.is_file() {
+        warn!(path = %block_path.display(), relative_path = %!block_path.is_absolute(), "block file not found, skipping");
         return Ok(None);
     }
 
     let Ok((_base, hash_bytes)) =
         multibase::decode("B".to_string() + block_path.file_stem().unwrap().to_str().unwrap())
     else {
-        debug!(path = %block_path.display(), "block filename is not valid base32upper");
+        warn!(path = %block_path.display(), "block filename is not valid base32upper, skipping");
         return Ok(None);
     };
     let Ok(hash) = Multihash::from_bytes(&hash_bytes) else {
-        debug!(path = %block_path.display(), "block filename is not a valid multihash");
+        warn!(path = %block_path.display(), "block filename is not a valid multihash, skipping");
         return Ok(None);
     };
     let blob = tokio::fs::read(&block_path).await?;
