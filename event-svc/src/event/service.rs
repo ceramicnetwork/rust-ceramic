@@ -541,8 +541,8 @@ impl EventService {
         }
     }
 
-    /// This is a helper function to get the chain proof for a given event from the database, or to validate and store
-    /// it if it doesn't exist.
+    /// This is a helper function to get the chain proof for a given event from the database, or throw an error if it
+    /// wasn't found.
     async fn get_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,

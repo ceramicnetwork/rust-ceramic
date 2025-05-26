@@ -441,11 +441,11 @@ pub struct StreamStateMsg {
     pub id: StreamId,
 }
 impl Message for StreamStateMsg {
-    type Result = anyhow::Result<Option<StreamState>>;
+    type Result = anyhow::Result<Option<ResolvedStreamState>>;
 }
 
-/// State of a single stream
-pub struct StreamState {
+/// State of a single stream after conflict resolution
+pub struct ResolvedStreamState {
     /// Multibase encoding of the stream id
     pub id: StreamId,
 
@@ -462,7 +462,7 @@ pub struct StreamState {
     pub data: Vec<u8>,
 }
 
-impl std::fmt::Debug for StreamState {
+impl std::fmt::Debug for ResolvedStreamState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !f.alternate() {
             f.debug_struct("StreamState")
@@ -583,7 +583,7 @@ impl Handler<StreamStateMsg> for Resolver {
             let value = values.value(i);
             dimensions.insert(key.to_string(), value.to_vec());
         }
-        Ok(Some(StreamState {
+        Ok(Some(ResolvedStreamState {
             id,
             event_cid: Cid::read_bytes(event_cid.value(0)).context("event_cid as a CID")?,
             controller: controller.value(0).to_string(),

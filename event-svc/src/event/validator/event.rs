@@ -4,6 +4,7 @@ use ceramic_core::{Cid, EventId, NodeId};
 use ceramic_event::unvalidated;
 use ipld_core::ipld::Ipld;
 use recon::ReconItem;
+use tokio::try_join;
 
 use crate::{
     blockchain::eth_rpc,
@@ -157,21 +158,13 @@ impl EventValidator {
         // Partition the events by type of validation needed and delegate to validators
         let grouped = GroupedEvents::from(parsed_events);
 
-        // Time events are always validated
-        let validated_time = self.validate_time_events(grouped.time_batch).await?;
+        let (validated_signed, validated_time) = try_join!(
+            self.validate_signed_events(grouped.signed_batch, validation_req),
+            // Time events are always validated
+            self.validate_time_events(grouped.time_batch)
+        )?;
+        validated.extend_with(validated_signed);
         validated.extend_with(validated_time);
-
-        if let Some(req) = validation_req {
-            let validated_signed = self
-                .validate_signed_events(grouped.signed_batch, req)
-                .await?;
-            validated.extend_with(validated_signed);
-        } else {
-            // Return all data events as valid
-            validated
-                .valid
-                .extend(Vec::<ValidatedEvent>::from(grouped.signed_batch));
-        };
 
         if !validated.invalid.is_empty() {
             tracing::warn!(count=%validated.invalid.len(), "invalid events discovered");
@@ -183,23 +176,33 @@ impl EventValidator {
     async fn validate_signed_events(
         &self,
         events: SignedValidationBatch,
-        validation_req: &ValidationRequirement,
+        validation_req: Option<&ValidationRequirement>,
     ) -> Result<ValidatedEvents> {
-        let opts = if validation_req.check_exp {
-            ceramic_validation::VerifyJwsOpts::default()
+        if let Some(req) = validation_req {
+            let opts = if req.check_exp {
+                ceramic_validation::VerifyJwsOpts::default()
+            } else {
+                ceramic_validation::VerifyJwsOpts {
+                    at_time: ceramic_validation::AtTime::SkipTimeChecks,
+                    ..Default::default()
+                }
+            };
+            SignedEventValidator::validate_events(
+                Arc::clone(&self.event_access),
+                &opts,
+                events,
+                req.require_local_init,
+            )
+            .await
         } else {
-            ceramic_validation::VerifyJwsOpts {
-                at_time: ceramic_validation::AtTime::SkipTimeChecks,
-                ..Default::default()
-            }
-        };
-        SignedEventValidator::validate_events(
-            Arc::clone(&self.event_access),
-            &opts,
-            events,
-            validation_req.require_local_init,
-        )
-        .await
+            // If no validation requirement is specified, we assume all events are valid.
+            Ok(ValidatedEvents {
+                valid: events.into(),
+                unvalidated: Vec::new(),
+                invalid: Vec::new(),
+                proofs: Vec::new(),
+            })
+        }
     }
 
     async fn validate_time_events(&self, events: TimeValidationBatch) -> Result<ValidatedEvents> {

@@ -17,7 +17,7 @@ pub struct TimeEventValidator {
     /// we could support multiple providers for each chain (to get around rate limits)
     /// but we'll just force people to run a light client if they really need the throughput
     chain_providers: HashMap<caip2::ChainId, ChainInclusionProvider>,
-    // add a sql connection / block table access
+    // TODO: add a sql connection / block table access
 }
 
 impl std::fmt::Debug for TimeEventValidator {

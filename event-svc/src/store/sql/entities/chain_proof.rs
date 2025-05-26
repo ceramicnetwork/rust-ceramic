@@ -8,7 +8,7 @@ pub struct ChainProof {
     pub chain_id: String,
     /// The transaction hash of the proof
     pub transaction_hash: String,
-    /// The transaction input of the proof
+    /// The transaction input of the proof (i.e. the CID of the root of the Merkle tree being anchored)
     pub transaction_input: String,
     /// The block hash of the proof
     pub block_hash: String,
