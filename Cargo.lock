@@ -258,7 +258,7 @@ dependencies = [
  "alloy-sol-types",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
 ]
 
@@ -280,7 +280,7 @@ dependencies = [
  "async-trait",
  "auto_impl",
  "futures-utils-wasm",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -351,7 +351,7 @@ dependencies = [
  "reqwest 0.12.8",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "url",
@@ -454,7 +454,7 @@ dependencies = [
  "auto_impl",
  "elliptic-curve 0.13.8",
  "k256 0.13.4",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -540,7 +540,7 @@ dependencies = [
  "futures-utils-wasm",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tower 0.5.1",
  "tracing",
@@ -1046,7 +1046,7 @@ dependencies = [
  "nom",
  "num-traits",
  "rusticata-macros",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
 ]
 
@@ -1062,7 +1062,7 @@ dependencies = [
  "nom",
  "num-traits",
  "rusticata-macros",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
 ]
 
@@ -2026,7 +2026,7 @@ dependencies = [
  "serde",
  "serde_with 2.3.3",
  "siwe",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
  "url",
 ]
@@ -2248,7 +2248,7 @@ dependencies = [
  "multihash-codetable",
  "serde",
  "serde_ipld_dagcbor",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tokio",
 ]
 
@@ -2357,7 +2357,7 @@ dependencies = [
  "sqlx",
  "ssi",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tmpdir",
  "tokio",
  "tracing",
@@ -2422,7 +2422,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "sqlx",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tmpdir",
  "tokio",
  "tracing",
@@ -2462,7 +2462,7 @@ dependencies = [
  "serde_json",
  "swagger",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
 ]
@@ -2652,7 +2652,7 @@ dependencies = [
  "serde_ipld_dagcbor",
  "sqlx",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tmpdir",
  "tokio",
  "tracing",
@@ -2708,7 +2708,7 @@ version = "0.54.2"
 dependencies = [
  "anyhow",
  "sqlx",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -3345,7 +3345,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_ipld_dagcbor",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4203,7 +4203,7 @@ dependencies = [
  "ssi-crypto",
  "ssi-dids",
  "ssi-jwk",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5350,7 +5350,7 @@ dependencies = [
  "once_cell",
  "rand 0.8.5",
  "socket2 0.5.7",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tinyvec",
  "tokio",
  "tracing",
@@ -5373,7 +5373,7 @@ dependencies = [
  "rand 0.8.5",
  "resolv-conf",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -6075,7 +6075,7 @@ dependencies = [
  "bytes 1.7.2",
  "ipld-core",
  "quick-protobuf",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6136,7 +6136,7 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-context",
  "tokio-stream",
@@ -6326,7 +6326,7 @@ dependencies = [
  "json-syntax",
  "locspan",
  "rdf-types",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6348,7 +6348,7 @@ dependencies = [
  "locspan",
  "mown",
  "rdf-types",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6365,7 +6365,7 @@ dependencies = [
  "locspan",
  "mown",
  "rdf-types",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6394,7 +6394,7 @@ dependencies = [
  "ryu-js",
  "smallvec",
  "static-iref",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6415,7 +6415,7 @@ dependencies = [
  "locspan",
  "mown",
  "rdf-types",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6436,7 +6436,7 @@ dependencies = [
  "locspan-derive",
  "rdf-types",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6460,7 +6460,7 @@ dependencies = [
  "jsonptr",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6473,7 +6473,7 @@ dependencies = [
  "schemars 0.8.21",
  "serde",
  "serde_json",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6828,7 +6828,7 @@ dependencies = [
  "log",
  "multihash 0.16.3",
  "parking_lot",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6839,7 +6839,7 @@ checksum = "8dd1ab68c9d26f20c7d0dfea6eecbae8c00359875210001b33ca27d4a02f3d09"
 dependencies = [
  "byteorder",
  "libipld-core",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6867,7 +6867,7 @@ dependencies = [
  "multibase 0.9.1",
  "multihash 0.16.3",
  "serde",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6935,7 +6935,7 @@ dependencies = [
  "multiaddr",
  "pin-project",
  "rw-stream-sink",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -7005,7 +7005,7 @@ dependencies = [
  "rw-stream-sink",
  "serde",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "unsigned-varint 0.8.0",
  "void",
@@ -7030,7 +7030,7 @@ dependencies = [
  "lru 0.11.1",
  "quick-protobuf",
  "quick-protobuf-codec 0.2.0",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "void",
 ]
@@ -7101,7 +7101,7 @@ dependencies = [
  "quick-protobuf",
  "quick-protobuf-codec 0.3.1",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "void",
 ]
@@ -7122,7 +7122,7 @@ dependencies = [
  "ring 0.17.8",
  "serde",
  "sha2 0.10.8",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "zeroize",
 ]
@@ -7151,7 +7151,7 @@ dependencies = [
  "serde",
  "sha2 0.10.8",
  "smallvec",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "uint",
  "void",
@@ -7219,7 +7219,7 @@ dependencies = [
  "sha2 0.10.8",
  "snow",
  "static_assertions",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "x25519-dalek",
  "zeroize",
@@ -7278,7 +7278,7 @@ dependencies = [
  "ring 0.17.8",
  "rustls 0.23.13",
  "socket2 0.5.7",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -7302,7 +7302,7 @@ dependencies = [
  "quick-protobuf-codec 0.3.1",
  "rand 0.8.5",
  "static_assertions",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "void",
  "web-time",
@@ -7416,7 +7416,7 @@ dependencies = [
  "ring 0.16.20",
  "rustls 0.21.12",
  "rustls-webpki 0.101.7",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "x509-parser 0.15.1",
  "yasna",
 ]
@@ -7435,7 +7435,7 @@ dependencies = [
  "ring 0.17.8",
  "rustls 0.23.13",
  "rustls-webpki 0.101.7",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "x509-parser 0.16.0",
  "yasna",
 ]
@@ -7471,7 +7471,7 @@ dependencies = [
  "pin-project-lite",
  "rw-stream-sink",
  "soketto",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "url",
  "webpki-roots",
@@ -7486,7 +7486,7 @@ dependencies = [
  "either",
  "futures",
  "libp2p-core",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "yamux 0.12.1",
  "yamux 0.13.3",
@@ -8027,7 +8027,7 @@ dependencies = [
  "anyhow",
  "byteorder",
  "paste",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -8041,7 +8041,7 @@ dependencies = [
  "log",
  "netlink-packet-core",
  "netlink-sys",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -8425,7 +8425,7 @@ dependencies = [
  "js-sys",
  "once_cell",
  "pin-project-lite",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "urlencoding",
 ]
 
@@ -8443,7 +8443,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "prost 0.12.6",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tonic 0.11.0",
 ]
@@ -8483,7 +8483,7 @@ dependencies = [
  "ordered-float 4.3.0",
  "percent-encoding 2.3.1",
  "rand 0.8.5",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
 ]
@@ -9515,7 +9515,7 @@ dependencies = [
  "asynchronous-codec 0.6.2",
  "bytes 1.7.2",
  "quick-protobuf",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "unsigned-varint 0.7.2",
 ]
 
@@ -9528,7 +9528,7 @@ dependencies = [
  "asynchronous-codec 0.7.0",
  "bytes 1.7.2",
  "quick-protobuf",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "unsigned-varint 0.8.0",
 ]
 
@@ -9567,7 +9567,7 @@ dependencies = [
  "rustc-hash",
  "rustls 0.23.13",
  "socket2 0.5.7",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -9584,7 +9584,7 @@ dependencies = [
  "rustc-hash",
  "rustls 0.23.13",
  "slab",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tinyvec",
  "tracing",
 ]
@@ -9808,7 +9808,7 @@ dependencies = [
  "serde_cbor",
  "serde_json",
  "test-log",
- "thiserror 1.0.64",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -9855,7 +9855,7 @@ checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
 dependencies = [
  "getrandom 0.2.15",
  "libredox",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -10199,7 +10199,7 @@ dependencies = [
  "netlink-packet-route",
  "netlink-proto",
  "nix 0.24.3",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -10968,7 +10968,7 @@ dependencies = [
  "chrono",
  "num-bigint",
  "num-traits",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -10989,7 +10989,7 @@ dependencies = [
  "k256 0.11.6",
  "rand 0.8.5",
  "sha3",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
 ]
 
@@ -11004,7 +11004,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siwe",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11255,7 +11255,7 @@ dependencies = [
  "sha2 0.10.8",
  "smallvec",
  "sqlformat",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -11339,7 +11339,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "whoami",
 ]
@@ -11378,7 +11378,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "tracing",
  "whoami",
 ]
@@ -11477,7 +11477,7 @@ checksum = "da2c479690955bebece0279a5b1ab9d7d584402caed9f56ecec346d0bc63661f"
 dependencies = [
  "bs58 0.4.0",
  "ssi-jwk",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11494,7 +11494,7 @@ checksum = "5e43f42016b80dc3e5eae8f7d2b22db3debbfe97b38e4fa449433497b3513048"
 dependencies = [
  "async-trait",
  "serde",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11509,7 +11509,7 @@ dependencies = [
  "keccak-hash",
  "ripemd160",
  "sha2 0.10.8",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "zeroize",
 ]
 
@@ -11535,7 +11535,7 @@ dependencies = [
  "ssi-json-ld",
  "ssi-jwk",
  "static-iref",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11557,7 +11557,7 @@ dependencies = [
  "ssi-contexts",
  "ssi-crypto",
  "static-iref",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11583,7 +11583,7 @@ dependencies = [
  "serde",
  "simple_asn1",
  "ssi-crypto",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "unsigned-varint 0.7.2",
  "zeroize",
 ]
@@ -11608,7 +11608,7 @@ dependencies = [
  "sha3",
  "ssi-crypto",
  "ssi-jwk",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11623,7 +11623,7 @@ dependencies = [
  "serde_with 2.3.3",
  "ssi-jwk",
  "ssi-jws",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11661,7 +11661,7 @@ dependencies = [
  "ssi-jws",
  "ssi-tzkey",
  "static-iref",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11672,7 +11672,7 @@ checksum = "22967c7882e2457a2813badebf613a1b6ea3240f77ccac5c7c03858806d56618"
 dependencies = [
  "sshkeys",
  "ssi-jwk",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11685,7 +11685,7 @@ dependencies = [
  "ed25519-dalek 2.1.1",
  "ssi-jwk",
  "ssi-jws",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11706,7 +11706,7 @@ dependencies = [
  "ssi-jwk",
  "ssi-jws",
  "ssi-jwt",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11736,7 +11736,7 @@ dependencies = [
  "ssi-jws",
  "ssi-jwt",
  "ssi-ldp",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11754,7 +11754,7 @@ dependencies = [
  "ssi-json-ld",
  "ssi-jwk",
  "ssi-ldp",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -12157,11 +12157,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.64"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d50af8abc119fb8bb6dbabcfa89656f46f84aa0ac7688088608076ad2b459a84"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl 1.0.64",
+ "thiserror-impl 1.0.69",
 ]
 
 [[package]]
@@ -12175,9 +12175,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.64"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08904e7672f5eb876eaaf87e0ce17857500934f4981c4a0ab2b4aa98baac7fc3"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -13596,7 +13596,7 @@ dependencies = [
  "nom",
  "oid-registry 0.6.1",
  "rusticata-macros",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
 ]
 
@@ -13613,7 +13613,7 @@ dependencies = [
  "nom",
  "oid-registry 0.7.1",
  "rusticata-macros",
- "thiserror 1.0.64",
+ "thiserror 1.0.69",
  "time 0.3.36",
 ]
 
