@@ -272,7 +272,7 @@ pub fn stream_tips_partitioned() -> SchemaRef {
     }))
 }
 
-/// The `stream_states` table contains the canonical tip for each stream
+/// The `stream_states` table contains the canonical tip for each stream (after conflict resolution has selected from all divergent histories)
 pub fn stream_states() -> SchemaRef {
     Arc::clone(STREAM_STATES.get_or_init(|| {
         Arc::new(
