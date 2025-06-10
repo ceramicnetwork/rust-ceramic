@@ -12,7 +12,6 @@ import {
   type EncodedDeterministicInitEventPayload,
   type JSONPatchOperation,
 } from '@ceramic-sdk/model-instance-protocol'
-import type { DIDString } from '@didtools/codecs'
 import type { DID } from 'dids'
 import type { CID } from 'multiformats/cid'
 
@@ -57,7 +56,7 @@ export async function createInitEvent<
   const { content, controller, ...headerParams } = params
   const header = createInitHeader({
     ...headerParams,
-    controller: controller.id,
+    controller,
     unique: false, // non-deterministic event
   })
   return await createSignedInitEvent(controller, content, header)
@@ -77,7 +76,7 @@ export async function createInitEvent<
  */
 export function getDeterministicInitEventPayload(
   model: StreamID,
-  controller: DIDString | string,
+  controller: DID,
   uniqueValue?: Uint8Array,
 ): DeterministicInitEventPayload {
   return {
@@ -100,7 +99,7 @@ export function getDeterministicInitEventPayload(
  */
 export function getDeterministicInitEvent(
   model: StreamID,
-  controller: DIDString | string,
+  controller: DID,
   uniqueValue?: Uint8Array,
 ): EncodedDeterministicInitEventPayload {
   const { header } = getDeterministicInitEventPayload(

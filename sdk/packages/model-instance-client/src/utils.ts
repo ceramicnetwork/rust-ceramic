@@ -3,7 +3,8 @@ import {
   DocumentInitEventHeader,
   type JSONPatchOperation,
 } from '@ceramic-sdk/model-instance-protocol'
-import { type DIDString, asDIDString } from '@didtools/codecs'
+import { asDIDString } from '@didtools/codecs'
+import type { DID } from 'dids'
 import jsonpatch from 'fast-json-patch'
 import type { CID } from 'multiformats/cid'
 
@@ -38,8 +39,8 @@ export type CreateInitHeaderParams = {
   /** CID of specific model version to use when validating this instance.
    * When empty the the init commit of the model is used */
   modelVersion?: CID
-  /** The DID string or literal string representing the controller of the document. */
-  controller: DIDString | string
+  /** The controller of the document. */
+  controller: DID
   /** A unique value to ensure determinism, or a boolean to indicate uniqueness type. */
   unique?: Uint8Array | boolean
   /** Optional context for the document. */
@@ -68,8 +69,9 @@ export type CreateInitHeaderParams = {
 export function createInitHeader(
   params: CreateInitHeaderParams,
 ): DocumentInitEventHeader {
+  const did = params.controller.hasParent ? params.controller.parent : params.controller.id
   const header: DocumentInitEventHeader = {
-    controllers: [asDIDString(params.controller)],
+    controllers: [asDIDString(did)],
     model: params.model,
     sep: 'model',
   }
