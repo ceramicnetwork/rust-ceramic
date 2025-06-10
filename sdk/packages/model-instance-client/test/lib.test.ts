@@ -29,9 +29,11 @@ const authenticatedDID = await getAuthenticatedDID(new Uint8Array(32))
 describe('getDeterministicInitEventPayload()', () => {
   test('returns the deterministic event payload without unique value by default', () => {
     const model = randomStreamID()
-    const event = getDeterministicInitEventPayload(model, 'did:key:123')
+    const event = getDeterministicInitEventPayload(model, authenticatedDID)
     expect(event.data).toBeNull()
-    expect(event.header.controllers).toEqual(['did:key:123'])
+    expect(event.header.controllers).toEqual([
+      'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp',
+    ])
     expect(event.header.model).toBe(model)
     expect(event.header.unique).toBeUndefined()
   })
@@ -39,9 +41,15 @@ describe('getDeterministicInitEventPayload()', () => {
   test('returns the deterministic event payload with the provided unique value', () => {
     const model = randomStreamID()
     const unique = new Uint8Array([0, 1, 2])
-    const event = getDeterministicInitEventPayload(model, 'did:key:123', unique)
+    const event = getDeterministicInitEventPayload(
+      model,
+      authenticatedDID,
+      unique,
+    )
     expect(event.data).toBeNull()
-    expect(event.header.controllers).toEqual(['did:key:123'])
+    expect(event.header.controllers).toEqual([
+      'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp',
+    ])
     expect(event.header.model).toBe(model)
     expect(event.header.unique).toBe(unique)
   })
@@ -50,9 +58,11 @@ describe('getDeterministicInitEventPayload()', () => {
 describe('getDeterministicInitEvent()', () => {
   test('returns the deterministic event without unique value by default', () => {
     const model = randomStreamID()
-    const event = getDeterministicInitEvent(model, 'did:key:123')
+    const event = getDeterministicInitEvent(model, authenticatedDID)
     expect(event.data).toBeNull()
-    expect(event.header.controllers).toEqual(['did:key:123'])
+    expect(event.header.controllers).toEqual([
+      'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp',
+    ])
     expect(equals(event.header.model, model.bytes)).toBe(true)
     expect(event.header.unique).toBeUndefined()
   })
@@ -60,9 +70,11 @@ describe('getDeterministicInitEvent()', () => {
   test('returns the deterministic event with the provided unique value', () => {
     const model = randomStreamID()
     const unique = new Uint8Array([0, 1, 2])
-    const event = getDeterministicInitEvent(model, 'did:key:123', unique)
+    const event = getDeterministicInitEvent(model, authenticatedDID, unique)
     expect(event.data).toBeNull()
-    expect(event.header.controllers).toEqual(['did:key:123'])
+    expect(event.header.controllers).toEqual([
+      'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp',
+    ])
     expect(equals(event.header.model, model.bytes)).toBe(true)
     expect(event.header.unique).toBe(unique)
   })
@@ -145,7 +157,7 @@ describe('ModelInstanceClient', () => {
   describe('getEvent() method', () => {
     test('gets a MID event by commit ID', async () => {
       const streamID = randomStreamID()
-      const docEvent = getDeterministicInitEvent(streamID, 'did:key:123')
+      const docEvent = getDeterministicInitEvent(streamID, authenticatedDID)
       const getEventType = jest.fn(() => docEvent)
       const ceramic = { getEventType } as unknown as CeramicClient
       const client = new ModelInstanceClient({ ceramic, did: authenticatedDID })
@@ -167,7 +179,7 @@ describe('ModelInstanceClient', () => {
       const client = new ModelInstanceClient({ ceramic, did: authenticatedDID })
 
       const id = await client.createSingleton({
-        controller: 'did:key:123',
+        controller: authenticatedDID,
         model: randomStreamID(),
       })
       expect(postEventType).toHaveBeenCalled()
