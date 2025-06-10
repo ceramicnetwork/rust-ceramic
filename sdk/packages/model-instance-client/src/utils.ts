@@ -69,7 +69,9 @@ export type CreateInitHeaderParams = {
 export function createInitHeader(
   params: CreateInitHeaderParams,
 ): DocumentInitEventHeader {
-  const did = params.controller.hasParent ? params.controller.parent : params.controller.id
+  const did = params.controller.hasParent
+    ? params.controller.parent
+    : params.controller.id
   const header: DocumentInitEventHeader = {
     controllers: [asDIDString(did)],
     model: params.model,
