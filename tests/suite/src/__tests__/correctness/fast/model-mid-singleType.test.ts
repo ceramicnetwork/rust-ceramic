@@ -78,7 +78,7 @@ describe('model integration test for single model and MID', () => {
     })
     const documentStream = await modelInstanceClient.createSingleton({
       model: modelStream,
-      controller: authenticatedDID.id,
+      controller: authenticatedDID,
     })
 
     // Use the flightsql stream behavior to ensure the events states have been process before querying their states.
@@ -97,7 +97,7 @@ describe('model integration test for single model and MID', () => {
     })
     const documentStream = await modelInstanceClient.createSingleton({
       model: modelStream,
-      controller: authenticatedDID.id,
+      controller: authenticatedDID,
     })
     // Use the flightsql stream behavior to ensure the events states have been process before querying their states.
     await waitForEventState(flightClient, documentStream.commit)
@@ -117,11 +117,11 @@ describe('model integration test for single model and MID', () => {
     })
     const documentStream1 = await modelInstanceClient.createSingleton({
       model: modelStream,
-      controller: authenticatedDID.id,
+      controller: authenticatedDID,
     })
     const documentStream2 = await modelInstanceClient.createSingleton({
       model: modelStream,
-      controller: authenticatedDID.id,
+      controller: authenticatedDID,
     })
     expect(documentStream1.baseID).toEqual(documentStream2.baseID)
   })
@@ -138,11 +138,11 @@ describe('model integration test for single model and MID', () => {
     })
     const documentStream1 = await modelInstanceClient1.createSingleton({
       model: modelStream,
-      controller: authenticatedDID1.id,
+      controller: authenticatedDID1,
     })
     const documentStream2 = await modelInstanceClient2.createSingleton({
       model: modelStream,
-      controller: authenticatedDID2.id,
+      controller: authenticatedDID2,
     })
     expect(documentStream1.baseID).not.toEqual(documentStream2.baseID)
   })
