@@ -275,6 +275,10 @@ impl EventValidator {
             }
         }
     }
+
+    pub fn time_event_validator(&self) -> &TimeEventValidator {
+        &self.time_event_validator
+    }
 }
 
 #[cfg(test)]

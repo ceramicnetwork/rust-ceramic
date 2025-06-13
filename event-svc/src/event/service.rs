@@ -404,7 +404,9 @@ impl EventService {
 
         match event {
             ceramic_event::unvalidated::Event::Time(time_event) => {
-                let proof = self.get_chain_proof(&time_event).await?;
+                let proof = self.discover_chain_proof(&time_event).await.map_err(|e| {
+                    Error::new_app(anyhow::anyhow!("Failed to discover chain proof: {:?}", e))
+                })?;
 
                 Ok(ConclusionEvent::Time(ConclusionTime {
                     event_cid,
@@ -541,22 +543,47 @@ impl EventService {
         }
     }
 
-    /// This is a helper function to get the chain proof for a given event from the database, or throw an error if it
-    /// wasn't found.
-    async fn get_chain_proof(
+    /// This is a helper function to get the chain proof for a given event from the database, or to validate and store
+    /// it if it doesn't exist.
+    /// TODO: Remove the code for fetching and storing the proof once existing users have migrated to the new version.
+    /// v0.55.0 onwards, there should be no proofs that have not already been validated and stored by the time we reach
+    /// this point.
+    async fn discover_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,
-    ) -> Result<ChainProof> {
+    ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {
         let tx_hash = event.proof().tx_hash();
         let tx_hash = tx_hash_try_from_cid(tx_hash).unwrap().to_string();
-        let chain_proof = self
+        if let Some(proof) = self
             .event_access
             .get_chain_proof(event.proof().chain_id(), &tx_hash)
             .await
-            .map_err(|e| {
-                Error::new_app(anyhow::anyhow!("Failed to discover chain proof: {:?}", e))
-            })?;
-        Ok(chain_proof)
+            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?
+        {
+            return Ok(proof);
+        }
+
+        // TODO: The following code can be removed once all existing users have migrated to the new version. There
+        // should be no proofs that have not already been validated and stored by the time we reach this point.
+        warn!(
+            "Chain proof for tx {} not found in database, validating and storing it now.",
+            tx_hash
+        );
+
+        // Try using the RPC provider and store the proof
+        let proof = self
+            .event_validator
+            .time_event_validator()
+            .validate_chain_inclusion(event)
+            .await?;
+
+        let proof = ChainProof::from(proof);
+        self.event_access
+            .persist_chain_inclusion_proofs(&[proof.clone()])
+            .await
+            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
+
+        Ok(proof)
     }
 }
 
