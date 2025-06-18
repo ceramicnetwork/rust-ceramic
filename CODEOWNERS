@@ -1,27 +1,2 @@
 # Default all files to the eng reviewers team
 * @ceramicnetwork/eng-reviewers
-
-# Pick two reviewers for each top level directory:
-# the owner and someone from the eng-reviewers team.
-/.github/           @smrz2001       @ceramicnetwork/eng-reviewers
-/anchor-service/    @nathanielc     @ceramicnetwork/eng-reviewers
-/anchor-remote/     @nathanielc     @ceramicnetwork/eng-reviewers
-/api-server/        @dav1do         @ceramicnetwork/eng-reviewers
-/api/               @dav1do         @ceramicnetwork/eng-reviewers
-/beetle/            @nathanielc     @ceramicnetwork/eng-reviewers
-/ci-scripts/        @smrz2001       @ceramicnetwork/eng-reviewers
-/core/              @nathanielc     @ceramicnetwork/eng-reviewers
-/event/             @nathanielc     @ceramicnetwork/eng-reviewers
-/flight/            @nathanielc     @ceramicnetwork/eng-reviewers
-/fpm/               @smrz2001       @ceramicnetwork/eng-reviewers
-/kubo-rpc-server/   @nathanielc     @ceramicnetwork/eng-reviewers
-/kubo-rpc/          @nathanielc     @ceramicnetwork/eng-reviewers
-/metrics/           @dav1do         @ceramicnetwork/eng-reviewers
-/migrations/        @dav1do         @ceramicnetwork/eng-reviewers
-/olap/              @nathanielc     @ceramicnetwork/eng-reviewers
-/one/               @stbrody        @ceramicnetwork/eng-reviewers
-/p2p/               @nathanielc     @ceramicnetwork/eng-reviewers
-/recon/             @nathanielc     @ceramicnetwork/eng-reviewers
-/service/           @dav1do         @ceramicnetwork/eng-reviewers
-/store/             @dav1do         @ceramicnetwork/eng-reviewers
-/validation/        @dav1do         @ceramicnetwork/eng-reviewers
