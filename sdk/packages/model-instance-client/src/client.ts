@@ -28,8 +28,8 @@ import type { DocumentState, UnknownContent } from './types.js'
 export type CreateSingletonParams = {
   /** The model's stream ID */
   model: StreamID
-  /** The controller of the stream (DID string or literal string) */
-  controller: DIDString | string
+  /** The controller of the stream */
+  controller: DID
   /** A unique value to ensure determinism of the event */
   uniqueValue?: Uint8Array
 }

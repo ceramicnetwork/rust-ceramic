@@ -75,6 +75,9 @@ dependencies:
   '@composedb/devtools':
     specifier: ^0.8.0
     version: 0.8.0(@polkadot/util@7.9.2)(graphql@16.9.0)(typescript@5.8.2)
+  '@didtools/cacao':
+    specifier: ^3.0.1
+    version: 3.0.1(typescript@5.8.2)
   '@didtools/codecs':
     specifier: ^3.0.0
     version: 3.0.0
