@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.55.1] - 2025-06-17
+
+### 🐛 Bug Fixes
+
+- Fetch unvalidated time proofs for conclusion events ([#723](https://github.com/ceramicnetwork/rust-ceramic/issues/723))
+
 ## [0.55.0] - 2025-05-26
 
 ### 🚀 Features
@@ -30,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - *(sdk)* Version v0.8.0 ([#711](https://github.com/ceramicnetwork/rust-ceramic/issues/711))
 - *(sdk)* Version v0.9.0 ([#712](https://github.com/ceramicnetwork/rust-ceramic/issues/712))
 - *(sdk)* Version v0.10.0 ([#720](https://github.com/ceramicnetwork/rust-ceramic/issues/720))
+- Version v0.55.0 ([#722](https://github.com/ceramicnetwork/rust-ceramic/issues/722))
 
 ## [0.5.0] - 2025-03-22
 
