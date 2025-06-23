@@ -71,14 +71,15 @@ export const authorizedSessionDid = async (
     return session.did
 }
 
-describe('create stream using session did', () => {
+describe('create/update stream using session did', () => {
     let flightClient: FlightSqlClient
     let client: CeramicClient
     let modelInstanceClient: ModelInstanceClient
     let modelStream: StreamID
 
     const testSigner = new Signer('0x4c0883a69102937d6231471b5dbb6204eaa7f9b0c8f2d6f8e1c5f3a2b6c7d8e9')
-    let authenticatedDID: DID
+    let authenticatedDID1: DID
+    let authenticatedDID2: DID
 
     beforeAll(async () => {
         flightClient = await createFlightSqlClient(FLIGHT_OPTIONS)
@@ -117,27 +118,40 @@ describe('create stream using session did', () => {
         // Use the flightsql stream behavior to ensure the events states have been process before querying their states.
         await waitForEventState(flightClient, modelStream.cid)
 
-        authenticatedDID = await authorizedSessionDid(
+        authenticatedDID1 = await authorizedSessionDid(
+            testSigner,
+            [`ceramic://*?model=${modelStream.toString()}`],
+        )
+        authenticatedDID2 = await authorizedSessionDid(
             testSigner,
             [`ceramic://*?model=${modelStream.toString()}`],
         )
     }, 10000)
     
-    test('create stream', async () => {
-        const commitID = await modelInstanceClient.createInstance({
-            controller: authenticatedDID,
+    test('create/update stream', async () => {
+        const init = await modelInstanceClient.createInstance({
+            controller: authenticatedDID1,
             model: modelStream,
             content: { test: 'hello' },
             shouldIndex: true,
         })
 
-        await waitForEventState(flightClient, commitID.cid)
+        await waitForEventState(flightClient, init.cid)
         
-        const streamState = await modelInstanceClient.getDocumentState(commitID.baseID)
-        const controller = streamState.metadata.controller
+        const streamInit = await modelInstanceClient.getDocumentState(init.baseID)
+        let controller = streamInit.metadata.controller
         const signerAddress = (await testSigner.getAddress()).toLowerCase()
 
-        expect(controller).toEqual(authenticatedDID.parent)
+        expect(controller).toEqual(authenticatedDID1.parent)
         expect(controller!.replace(/did:pkh.*:/, '').toLowerCase()).toEqual(signerAddress)
+        
+        const streamUpdate = await modelInstanceClient.updateDocument({
+            controller: authenticatedDID2,
+            streamID: init.baseID.toString(),
+            newContent: { test: 'world' },
+            shouldIndex: true,
+        })
+
+        await waitForEventState(flightClient, streamUpdate.commitID.cid)
     })
 })
