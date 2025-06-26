@@ -135,16 +135,13 @@ for (const [controllerType, createController] of Object.entries(
   const controller = await createController()
 
   // Deterministic (init) event
-  const validDeterministicEvent = getDeterministicInitEvent(
-    model,
-    controller.id,
-  )
+  const validDeterministicEvent = getDeterministicInitEvent(model, controller)
 
   // Signed init event
   const validInitPayload = InitEventPayload.encode({
     data: { test: true },
     header: createInitHeader({
-      controller: controller.id,
+      controller,
       model,
       unique: new Uint8Array([0, 1, 2, 3]),
     }),
