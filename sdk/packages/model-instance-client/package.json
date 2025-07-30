@@ -34,6 +34,7 @@
     "@ceramic-sdk/events": "workspace:^",
     "@ceramic-sdk/identifiers": "workspace:^",
     "@ceramic-sdk/model-instance-protocol": "workspace:^",
+    "@ceramic-sdk/model-protocol": "workspace:^",
     "@ceramic-sdk/stream-client": "workspace:^",
     "@didtools/codecs": "^3.0.0",
     "fast-json-patch": "^3.1.1",
