@@ -120,11 +120,18 @@ export class ModelInstanceClient extends StreamClient {
   async createInstance<T extends UnknownContent = UnknownContent>(
     params: CreateInstanceParams<T>,
   ): Promise<CommitID> {
-    const { model, modelDefinition, content, controller, shouldIndex, modelVersion } = params
+    const {
+      model,
+      modelDefinition,
+      content,
+      controller,
+      shouldIndex,
+      modelVersion,
+    } = params
 
     // Default to 'list' if no modelDefinition provided (backward compatibility)
     const relationType = modelDefinition?.accountRelation?.type || 'list'
-    
+
     switch (relationType) {
       case 'list': {
         const event = await createInitEvent({
@@ -149,16 +156,21 @@ export class ModelInstanceClient extends StreamClient {
         if (!modelDefinition || !modelDefinition.accountRelation) {
           throw new Error('Model definition is required for SET relations')
         }
-        
+
         // We know it's a SET relation, so fields must exist
-        const fields = (modelDefinition.accountRelation as { type: 'set'; fields: string[] }).fields
+        const fields = (
+          modelDefinition.accountRelation as { type: 'set'; fields: string[] }
+        ).fields
         if (!fields || fields.length === 0) {
           throw new Error('SET relation must specify fields')
         }
 
         // Extract "unique" components from content
         const unique = fields.map((field: string) => {
-          const value = content && typeof content === 'object' ? (content as any)[field] : undefined
+          const value =
+            content && typeof content === 'object'
+              ? (content as Record<string, unknown>)[field]
+              : undefined
           return value == null ? '' : String(value)
         })
 
