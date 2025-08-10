@@ -1,6 +1,6 @@
 {
   "name": "@ceramic-sdk/flight-sql-client-linux-x64-gnu",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "os": ["linux"],
   "cpu": ["x64"],
   "main": "flight-sql-client.linux-x64-gnu.node",
