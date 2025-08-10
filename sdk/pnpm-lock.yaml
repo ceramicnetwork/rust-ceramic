@@ -301,6 +301,9 @@ importers:
       '@ceramic-sdk/model-instance-protocol':
         specifier: workspace:^
         version: link:../model-instance-protocol
+      '@ceramic-sdk/model-protocol':
+        specifier: workspace:^
+        version: link:../model-protocol
       '@ceramic-sdk/stream-client':
         specifier: workspace:^
         version: link:../stream-client

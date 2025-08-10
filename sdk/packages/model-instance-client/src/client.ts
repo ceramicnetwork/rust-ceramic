@@ -9,6 +9,7 @@ import {
   DocumentEvent,
   getStreamID,
 } from '@ceramic-sdk/model-instance-protocol'
+import type { ModelDefinition } from '@ceramic-sdk/model-protocol'
 import { StreamClient, type StreamState } from '@ceramic-sdk/stream-client'
 import type { DIDString } from '@didtools/codecs'
 import type { DID } from 'dids'
@@ -38,7 +39,12 @@ export type CreateSingletonParams = {
  * Parameters for creating an instance of a model.
  */
 export type CreateInstanceParams<T extends UnknownContent = UnknownContent> =
-  Omit<CreateInitEventParams<T>, 'controller'> & {
+  Omit<CreateInitEventParams<T>, 'controller' | 'content'> & {
+    /** The model definition containing account relation info */
+    modelDefinition?: ModelDefinition
+    /** The document content */
+    content?: T
+    /** The controller DID */
     controller?: DID
   }
 
@@ -103,18 +109,82 @@ export class ModelInstanceClient extends StreamClient {
   }
 
   /**
-   * Creates an instance of a model. The model must have an account relation of list or set.
+   * Creates an instance based on the model definition's account relation type.
+   * - LIST: Creates a new instance with random unique value
+   * - SET: Creates a deterministic instance based on specified field values
+   * - SINGLE: Creates a singleton instance
+   *
+   * @param params - Parameters for creating the instance
+   * @returns The commit ID of the created instance
    */
   async createInstance<T extends UnknownContent = UnknownContent>(
     params: CreateInstanceParams<T>,
   ): Promise<CommitID> {
-    const { controller, ...rest } = params
-    const event = await createInitEvent({
-      ...rest,
-      controller: this.getDID(controller),
-    })
-    const cid = await this.ceramic.postEventType(SignedEvent, event)
-    return CommitID.fromStream(getStreamID(cid))
+    const {
+      model,
+      modelDefinition,
+      content,
+      controller,
+      shouldIndex,
+      modelVersion,
+    } = params
+
+    // Default to 'list' if no modelDefinition provided (backward compatibility)
+    const relationType = modelDefinition?.accountRelation?.type || 'list'
+
+    switch (relationType) {
+      case 'list': {
+        const event = await createInitEvent({
+          model,
+          content: content ?? null,
+          controller: this.getDID(controller),
+          shouldIndex,
+          modelVersion,
+        })
+        const cid = await this.ceramic.postEventType(SignedEvent, event)
+        return CommitID.fromStream(getStreamID(cid))
+      }
+
+      case 'single': {
+        return this.createSingleton({
+          model,
+          controller: this.getDID(controller),
+        })
+      }
+
+      case 'set': {
+        if (!modelDefinition || !modelDefinition.accountRelation) {
+          throw new Error('Model definition is required for SET relations')
+        }
+
+        // We know it's a SET relation, so fields must exist
+        const fields = (
+          modelDefinition.accountRelation as { type: 'set'; fields: string[] }
+        ).fields
+        if (!fields || fields.length === 0) {
+          throw new Error('SET relation must specify fields')
+        }
+
+        // Extract "unique" components from content
+        const unique = fields.map((field: string) => {
+          const value =
+            content && typeof content === 'object'
+              ? (content as Record<string, unknown>)[field]
+              : undefined
+          return value == null ? '' : String(value)
+        })
+
+        const uniqueValue = new TextEncoder().encode(unique.join('|'))
+        return this.createSingleton({
+          model,
+          controller: this.getDID(controller),
+          uniqueValue,
+        })
+      }
+
+      default:
+        throw new Error(`Unknown account relation type: ${relationType}`)
+    }
   }
 
   /**
