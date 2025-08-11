@@ -1,6 +1,6 @@
 {
   "name": "@ceramic-sdk/model-client",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "author": "3Box Labs",
   "license": "(Apache-2.0 OR MIT)",
   "keywords": ["ceramic", "stream", "model", "client"],
