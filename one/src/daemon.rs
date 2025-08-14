@@ -1,7 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use crate::{
-    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, DBOpts,
+    default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, startup, DBOpts,
     DBOptsExperimental, Info, LogOpts, Network,
 };
 use anyhow::{anyhow, bail, Result};
@@ -274,6 +274,16 @@ pub struct DaemonOpts {
         default_value = "file://./pipeline"
     )]
     object_store_url: url::Url,
+
+    /// Comma-separated list of stream IDs or model IDs to register as initial interests on startup.
+    /// The node will track these streams and sync their data.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_INITIAL_INTERESTS"
+    )]
+    initial_interests: Vec<String>,
 }
 
 fn spawn_database_optimizer(
@@ -446,6 +456,10 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     let node_key = NodeKey::try_from_dir(opts.p2p_key_dir).await?;
     let node_id = node_key.id();
+
+    // Process initial interests if provided
+    startup::process_initial_interests(&opts.initial_interests, &interest_svc, &network, &node_id)
+        .await?;
 
     // Register metrics for all components
     let recon_metrics = MetricsHandle::register(recon::Metrics::register);
