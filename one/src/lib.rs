@@ -8,6 +8,7 @@ mod metrics;
 mod migrations;
 mod network;
 mod query;
+mod startup;
 
 use anyhow::{anyhow, bail, Result};
 use ceramic_core::ssi::caip2::ChainId;
