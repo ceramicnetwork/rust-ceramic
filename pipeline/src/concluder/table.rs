@@ -80,7 +80,7 @@ impl<T> ConclusionFeedTable<T> {
             col.try_as_col()
                 .is_some_and(|column| column.name == "conclusion_event_order")
                 .then(|| {
-                    if let Expr::Literal(ScalarValue::UInt64(highwater_mark)) = lit {
+                    if let Expr::Literal(ScalarValue::UInt64(highwater_mark), _) = lit {
                         highwater_mark.to_owned()
                     } else {
                         None

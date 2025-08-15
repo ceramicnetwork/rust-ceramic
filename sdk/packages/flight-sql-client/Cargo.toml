@@ -13,11 +13,11 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-arrow-array = "54"
-arrow-cast = "54"
-arrow-flight = { version = "54", features = ["flight-sql-experimental"] }
-arrow-ipc = "54"
-arrow-schema = "54"
+arrow-array = "55"
+arrow-cast = "55"
+arrow-flight = { version = "55", features = ["flight-sql-experimental"] }
+arrow-ipc = "55"
+arrow-schema = "55"
 futures = "0.3"
 multibase = "0.9.1"
 napi = { version = "2.12.2", default-features = false, features = [

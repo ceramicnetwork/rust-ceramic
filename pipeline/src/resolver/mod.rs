@@ -33,7 +33,7 @@ use datafusion::{
     },
     execution::SendableRecordBatchStream,
     functions_aggregate::expr_fn::last_value,
-    logical_expr::{col, lit, ExprFunctionExt as _},
+    logical_expr::{col, lit},
     physical_plan::stream::RecordBatchStreamAdapter,
     prelude::{wildcard, Expr, SessionContext},
 };
@@ -518,21 +518,21 @@ impl Handler<StreamStateMsg> for Resolver {
             .aggregate(
                 vec![col("stream_cid"), col("controller")],
                 vec![
-                    last_value(vec![col("data")])
-                        .order_by(vec![col("stream_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value data query")?
-                        .alias("data"),
-                    last_value(vec![col("event_cid")])
-                        .order_by(vec![col("stream_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value event_cid query")?
-                        .alias("event_cid"),
-                    last_value(vec![col("dimensions")])
-                        .order_by(vec![col("stream_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value dimensions query")?
-                        .alias("dimensions"),
+                    last_value(
+                        col("data"),
+                        Some(vec![col("stream_state_order").sort(true, true)]),
+                    )
+                    .alias("data"),
+                    last_value(
+                        col("event_cid"),
+                        Some(vec![col("stream_state_order").sort(true, true)]),
+                    )
+                    .alias("event_cid"),
+                    last_value(
+                        col("dimensions"),
+                        Some(vec![col("stream_state_order").sort(true, true)]),
+                    )
+                    .alias("dimensions"),
                 ],
             )
             .context("invalid window")?

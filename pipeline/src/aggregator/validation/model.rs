@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::anyhow;
 use ceramic_core::{StreamId, METAMODEL_STREAM_ID};
 use json_schema_diff::{ChangeKind, Range};
@@ -26,9 +28,9 @@ pub enum ModelDefinition {
 impl ModelDefinition {
     fn schema_for<T: schemars::JsonSchema>() -> schemars::Schema {
         let settings = schemars::generate::SchemaSettings::default().with(|s| {
-            s.meta_schema = Some("https://json-schema.org/draft/2020-12/schema".to_string());
-            s.option_nullable = true;
-            s.option_add_null_type = false;
+            s.meta_schema = Some(Cow::Borrowed(
+                "https://json-schema.org/draft/2020-12/schema",
+            ));
         });
         let gen = settings.into_generator();
         gen.into_root_schema_for::<T>()

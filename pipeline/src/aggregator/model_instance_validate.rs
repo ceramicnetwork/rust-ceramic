@@ -164,12 +164,12 @@ impl ScalarUDFImpl for ModelInstanceValidate {
             Field::new_list_field(DataType::Utf8, true).into(),
         ))
     }
-    fn invoke_batch<'b>(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        number_rows: usize,
-    ) -> datafusion::common::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let number_rows = args.number_rows;
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
         let model_instance = as_binary_array(&args[0])?;
         let patch = as_binary_array(&args[1])?;
         let model_versions = as_binary_array(&args[2])?;

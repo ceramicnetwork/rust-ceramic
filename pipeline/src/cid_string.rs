@@ -69,12 +69,12 @@ impl ScalarUDFImpl for CidString {
     fn return_type(&self, _args: &[DataType]) -> datafusion::common::Result<DataType> {
         Ok(DataType::Utf8)
     }
-    fn invoke_batch(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        number_rows: usize,
-    ) -> datafusion::error::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::common::Result<ColumnarValue> {
+        let number_rows = args.number_rows;
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
         let cids = as_binary_array(&args[0])?;
         let mut strs = StringBuilder::with_capacity(number_rows, CID_STRING_BYTES * number_rows);
         for cid in cids {
@@ -129,12 +129,11 @@ impl ScalarUDFImpl for CidStringList {
     fn return_type(&self, _args: &[DataType]) -> datafusion::common::Result<DataType> {
         Ok(DataType::new_list(DataType::Utf8, true))
     }
-    fn invoke_batch(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        _number_rows: usize,
-    ) -> datafusion::error::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::common::Result<ColumnarValue> {
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
         let all_cids = as_list_array(&args[0])?;
         // The list structure is not modified.
         // We can map over the values array and reuse the list offsets.

@@ -120,12 +120,12 @@ impl ScalarUDFImpl for CidPart {
             Ok(DataType::Int32)
         }
     }
-    fn invoke_batch(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        number_rows: usize,
-    ) -> datafusion::common::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let number_rows = args.number_rows;
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
         if let Some(dict) = args[0].as_any_dictionary_opt() {
             // Map over the dictionary values
             //

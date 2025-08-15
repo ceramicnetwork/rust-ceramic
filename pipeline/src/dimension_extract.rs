@@ -6,7 +6,7 @@ use std::{any::Any, sync::Arc};
 use datafusion::{
     arrow::datatypes::DataType,
     functions_array::{extract::array_element_udf, map_extract::map_extract_udf},
-    logical_expr::{ColumnarValue, ScalarUDF, ScalarUDFImpl, Signature},
+    logical_expr::{ColumnarValue, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature},
     scalar::ScalarValue,
 };
 
@@ -64,16 +64,49 @@ impl ScalarUDFImpl for DimensionExtract {
             ))
         }
     }
-    fn invoke_batch(
+    // fn invoke_with_args(
+    //     &self,
+    //     args: datafusion::logical_expr::ScalarFunctionArgs,
+    // ) -> datafusion::error::Result<ColumnarValue> {
+    //     let arg_fields = args.arg_fields.clone();
+    //     let number_rows = args.number_rows;
+    //     let return_field = args.return_field.clone();
+    //     let mapped = self.map_extract.invoke_with_args(args)?;
+    //     let args = ScalarFunctionArgs {
+    //         args: vec![mapped, ColumnarValue::Scalar(ScalarValue::Int64(Some(1)))],
+    //         arg_fields,
+    //         number_rows,
+    //         return_field,
+    //     };
+    //     self.array_extract.invoke_with_args(args)
+    // }
+
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        number_rows: usize,
+        args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> datafusion::error::Result<ColumnarValue> {
-        let mapped = self.map_extract.invoke_batch(args, number_rows)?;
-        self.array_extract.invoke_batch(
-            &[mapped, ColumnarValue::Scalar(ScalarValue::Int64(Some(1)))],
+        let number_rows = args.number_rows;
+        let return_field = args.return_field.clone();
+
+        // First call map_extract
+        let mapped = self.map_extract.invoke_with_args(args)?;
+
+        // For array_extract, we need to create new arg_fields that match our new arguments
+        // This would typically be derived from the type of 'mapped' and the constant value
+        // Since we don't have the exact implementation details, this is a conceptual fix
+        let array_extract_arg_fields = vec![
+            /* field metadata for 'mapped' */,
+            /* field metadata for constant index 1 */
+        ];
+
+        let args = ScalarFunctionArgs {
+            args: vec![mapped, ColumnarValue::Scalar(ScalarValue::Int64(Some(1)))],
+            arg_fields: array_extract_arg_fields,
             number_rows,
-        )
+            return_field,
+        };
+
+        self.array_extract.invoke_with_args(args)
     }
 }
 

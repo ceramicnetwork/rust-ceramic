@@ -75,8 +75,8 @@ impl WindowUDFImpl for ModelInstancePatch {
     fn field(
         &self,
         field_args: datafusion::logical_expr::function::WindowUDFFieldArgs,
-    ) -> Result<arrow_schema::Field> {
-        Ok(Field::new_struct(
+    ) -> Result<Arc<arrow_schema::Field>> {
+        Ok(Arc::new(Field::new_struct(
             field_args.name(),
             vec![
                 Field::new("model_version", DataType::Binary, true),
@@ -85,7 +85,7 @@ impl WindowUDFImpl for ModelInstancePatch {
                 Field::new("event_height", DataType::UInt32, true),
             ],
             true,
-        ))
+        )))
     }
 }
 

@@ -136,12 +136,12 @@ impl ScalarUDFImpl for StreamIdString {
             Ok(DataType::Utf8)
         }
     }
-    fn invoke_batch(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        number_rows: usize,
+        args: datafusion::logical_expr::ScalarFunctionArgs,
     ) -> datafusion::common::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        let number_rows = args.number_rows;
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
 
         if let Some(dict) = args[0].as_any_dictionary_opt() {
             let stream_ids = as_binary_array(dict.values())?;
@@ -192,12 +192,11 @@ impl ScalarUDFImpl for StreamIdStringList {
     fn return_type(&self, _args: &[DataType]) -> datafusion::common::Result<DataType> {
         Ok(DataType::new_list(DataType::Utf8, true))
     }
-    fn invoke_batch(
+    fn invoke_with_args(
         &self,
-        args: &[ColumnarValue],
-        _number_rows: usize,
-    ) -> datafusion::common::Result<ColumnarValue> {
-        let args = ColumnarValue::values_to_arrays(args)?;
+        args: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let args = ColumnarValue::values_to_arrays(&args.args)?;
         let all_stream_ids = as_list_array(&args[0])?;
         // The list structure is not modified.
         // We can map over the values array and reuse the list offsets.

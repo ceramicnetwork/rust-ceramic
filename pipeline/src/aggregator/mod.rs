@@ -167,6 +167,7 @@ impl Aggregator {
             ctx.session()
                 .table(EVENT_STATES_MEM_TABLE)
                 .await?
+                // .union_distinct(ctx.session().table(EVENT_STATES_PERSISTENT_TABLE).await?)?
                 .union(ctx.session().table(EVENT_STATES_PERSISTENT_TABLE).await?)?
                 .into_view(),
         )?;
@@ -226,6 +227,13 @@ impl Aggregator {
                 })
         });
 
+        tracing::debug!(
+            ?max_conclusion_event_order,
+            ?max_event_state_order,
+            "Starting event status with highwater marks"
+        );
+
+        let max_conclusion_event_order = max_event_state_order;
         // Spawn actor
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
         let aggregator = Aggregator {
@@ -443,6 +451,7 @@ impl Aggregator {
             .select_columns(&[
                 "event_cid_partition",
                 "stream_cid",
+                // "conclusion_event_order",
                 "event_cid",
                 "event_height",
                 "data",
@@ -452,6 +461,12 @@ impl Aggregator {
             .with_column_renamed("event_cid_partition", "ecp")?
             .with_column_renamed("data", "previous_data")?
             .with_column_renamed("event_height", "previous_height")?;
+        // .with_column_renamed("conclusion_event_order", "event_states_ceo")?
+        // .with_column_renamed("event_cid", "event_states_event_cid")?;
+
+        // let event_states_cids = event_states
+        //     .clone()
+        //     .select_columns(&["event_states_event_cid", "event_states_ceo"])?;
 
         Ok(conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
@@ -478,6 +493,7 @@ impl Aggregator {
                 [
                     col("previous_event_cid_partition").eq(col("ecp")),
                     col("previous").eq(table_col(EVENT_STATES_TABLE, "event_cid")),
+                    // col("previous").eq(col("event_states_event_cid")),
                 ],
             )
             .context("setup join")?
@@ -541,7 +557,7 @@ impl Aggregator {
     #[instrument(skip_all)]
     async fn patch_models(&self, events_with_previous: DataFrame) -> Result<DataFrame> {
         Ok(events_with_previous
-            .window(vec![Expr::WindowFunction(WindowFunction::new(
+            .window(vec![Expr::WindowFunction(Box::new(WindowFunction::new(
                 WindowFunctionDefinition::WindowUDF(Arc::new(ModelPatch::new_udwf())),
                 vec![
                     col("event_cid"),
@@ -550,7 +566,7 @@ impl Aggregator {
                     col("previous_height"),
                     col("data"),
                 ],
-            ))
+            )))
             .partition_by(vec![col("stream_cid")])
             .order_by(vec![col("conclusion_event_order").sort(true, true)])
             .build()?
@@ -565,21 +581,11 @@ impl Aggregator {
                 col("dimensions"),
                 col("event_cid"),
                 col("event_type"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.event_height".to_owned(),
-                })
-                .alias("event_height"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.previous_data".to_owned(),
-                })
-                .alias("previous_data"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.data".to_owned(),
-                })
-                .alias("data"),
+                Expr::Column(Column::new_unqualified("patched.event_height".to_owned()))
+                    .alias("event_height"),
+                Expr::Column(Column::new_unqualified("patched.previous_data".to_owned()))
+                    .alias("previous_data"),
+                Expr::Column(Column::new_unqualified("patched.data".to_owned())).alias("data"),
                 col("before"),
                 col("chain_id"),
                 col("event_cid_partition"),
@@ -612,7 +618,7 @@ impl Aggregator {
     #[instrument(skip_all)]
     async fn patch_model_instances(&self, events_with_previous: DataFrame) -> Result<DataFrame> {
         events_with_previous
-            .window(vec![Expr::WindowFunction(WindowFunction::new(
+            .window(vec![Expr::WindowFunction(Box::new(WindowFunction::new(
                 WindowFunctionDefinition::WindowUDF(Arc::new(ModelInstancePatch::new_udwf())),
                 vec![
                     col("event_cid"),
@@ -621,7 +627,7 @@ impl Aggregator {
                     col("previous_height"),
                     col("data"),
                 ],
-            ))
+            )))
             .partition_by(vec![col("stream_cid")])
             .order_by(vec![col("conclusion_event_order").sort(true, true)])
             .build()?
@@ -637,38 +643,21 @@ impl Aggregator {
                 col("dimensions"),
                 col("event_cid"),
                 col("event_type"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.event_height".to_owned(),
-                })
-                .alias("event_height"),
+                Expr::Column(Column::new_unqualified("patched.event_height".to_owned()))
+                    .alias("event_height"),
                 // Determine model version from either the new metadata or from the dimensions.
                 when(
-                    Expr::Column(Column {
-                        relation: None,
-                        name: "patched.model_version".to_owned(),
-                    })
-                    .is_not_null(),
-                    Expr::Column(Column {
-                        relation: None,
-                        name: "patched.model_version".to_owned(),
-                    }),
+                    Expr::Column(Column::new_unqualified("patched.model_version".to_owned()))
+                        .is_not_null(),
+                    Expr::Column(Column::new_unqualified("patched.model_version".to_owned())),
                 )
                 .otherwise(stream_id_to_cid(cast(
                     dimension_extract(col("dimensions"), lit("model")),
                     DataType::Binary,
                 )))?
                 .alias("model_version"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.data".to_owned(),
-                })
-                .alias("data"),
-                Expr::Column(Column {
-                    relation: None,
-                    name: "patched.patch".to_owned(),
-                })
-                .alias("patch"),
+                Expr::Column(Column::new_unqualified("patched.data".to_owned())).alias("data"),
+                Expr::Column(Column::new_unqualified("patched.patch".to_owned())).alias("patch"),
                 col("before"),
                 col("chain_id"),
                 col("event_cid_partition"),
@@ -809,7 +798,10 @@ impl Aggregator {
             .count()
             .await
             .context("count mem table")?;
-        // If we have enough data cached in memory write it out to persistent store
+
+        // Write states to the persistent event_states table always
+
+        // If we have enough data cached in memory clear the memory table
         if count >= self.max_cached_rows {
             self.ctx
                 .table(EVENT_STATES_MEM_TABLE)
@@ -842,10 +834,7 @@ fn anon_col(field: &str) -> Expr {
 }
 // Construct a column for the field in the table
 fn table_col(table: impl Into<TableReference>, field: &str) -> Expr {
-    Expr::Column(Column {
-        relation: Some(table.into()),
-        name: field.into(),
-    })
+    Expr::Column(Column::new(Some(table.into()), field.to_string()))
 }
 
 async fn concluder_subscription(
@@ -1059,21 +1048,21 @@ impl Handler<StreamStateMsg> for Aggregator {
             .aggregate(
                 vec![col("stream_cid"), col("controller")],
                 vec![
-                    last_value(vec![col("data")])
-                        .order_by(vec![col("event_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value data query")?
-                        .alias("data"),
-                    last_value(vec![col("event_cid")])
-                        .order_by(vec![col("event_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value event_cid query")?
-                        .alias("event_cid"),
-                    last_value(vec![col("dimensions")])
-                        .order_by(vec![col("event_state_order").sort(true, true)])
-                        .build()
-                        .context("invalid last_value dimensions query")?
-                        .alias("dimensions"),
+                    last_value(
+                        col("data"),
+                        Some(vec![col("event_state_order").sort(true, true)]),
+                    )
+                    .alias("data"),
+                    last_value(
+                        col("event_cid"),
+                        Some(vec![col("event_state_order").sort(true, true)]),
+                    )
+                    .alias("event_cid"),
+                    last_value(
+                        col("dimensions"),
+                        Some(vec![col("event_state_order").sort(true, true)]),
+                    )
+                    .alias("dimensions"),
                 ],
             )
             .context("invalid window")?

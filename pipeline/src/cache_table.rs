@@ -31,9 +31,13 @@ use std::sync::Arc;
 use arrow::array::RecordBatch;
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::catalog::memory::{DataSourceExec, MemorySourceConfig};
 use datafusion::common::not_impl_err;
+use datafusion::datasource::sink::{DataSink, DataSinkExec};
 use datafusion::logical_expr::dml::InsertOp;
 use datafusion::logical_expr::SortExpr;
+use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::{
     catalog::Session,
     common::{plan_err, Constraints, DFSchema, SchemaExt as _},
@@ -41,12 +45,7 @@ use datafusion::{
     error::Result,
     execution::TaskContext,
     logical_expr::Expr,
-    physical_plan::{
-        insert::{DataSink, DataSinkExec},
-        memory::MemoryExec,
-        metrics::MetricsSet,
-        DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream,
-    },
+    physical_plan::{DisplayAs, DisplayFormatType, SendableRecordBatchStream},
     physical_planner::create_physical_sort_exprs,
 };
 use futures::StreamExt as _;
@@ -77,6 +76,9 @@ pub struct CacheTable {
 impl CacheTable {
     /// Create a new in-memory table from the provided schema and record batches
     pub fn try_new(schema: SchemaRef, partitions: Vec<Vec<RecordBatch>>) -> Result<Self> {
+        if partitions.is_empty() {
+            return plan_err!("No partitions provided, expected at least one partition");
+        }
         for batches in partitions.iter().flatten() {
             let batches_schema = batches.schema();
             if !schema.contains(&batches_schema) {
@@ -95,7 +97,7 @@ impl CacheTable {
                 .into_iter()
                 .map(|e| Arc::new(RwLock::new(e)))
                 .collect::<Vec<_>>(),
-            constraints: Constraints::empty(),
+            constraints: Constraints::default(),
             column_defaults: HashMap::new(),
             sort_order: Arc::new(Mutex::new(vec![])),
         })
@@ -139,13 +141,11 @@ impl TableProvider for CacheTable {
             partitions.push(inner_vec.clone())
         }
 
-        // TODO: Do we want to use a specialized CacheExec here that doesn't need a copy of the
-        // data?
-        // Is copying the data once faster than repeated access to the locks?
-        let mut exec = MemoryExec::try_new(&partitions, self.schema(), projection.cloned())?;
+        let mut source =
+            MemorySourceConfig::try_new(&partitions, self.schema(), projection.cloned())?;
 
         let show_sizes = state.config_options().explain.show_sizes;
-        exec = exec.with_show_sizes(show_sizes);
+        source = source.with_show_sizes(show_sizes);
 
         // add sort information if present
         let sort_order = self.sort_order.lock();
@@ -158,10 +158,10 @@ impl TableProvider for CacheTable {
                     create_physical_sort_exprs(sort_exprs, &df_schema, state.execution_props())
                 })
                 .collect::<Result<Vec<_>>>()?;
-            exec = exec.try_with_sort_information(file_sort_order)?;
+            source = source.try_with_sort_information(file_sort_order)?;
         }
 
-        Ok(Arc::new(exec))
+        Ok(DataSourceExec::from_data_source(source))
     }
 
     /// Returns an ExecutionPlan that inserts the execution results of a given [`ExecutionPlan`] into this [`CacheTable`].
@@ -187,12 +187,9 @@ impl TableProvider for CacheTable {
 
         // Create a physical plan from the logical plan.
         // Check that the schema of the plan matches the schema of this table.
-        if !self
-            .schema()
-            .logically_equivalent_names_and_types(&input.schema())
-        {
-            return plan_err!("Inserting query must have the same schema with the table.");
-        }
+        self.schema()
+            .logically_equivalent_names_and_types(&input.schema())?;
+
         match insert_op {
             InsertOp::Append => {}
             InsertOp::Overwrite => {
@@ -233,6 +230,7 @@ impl DisplayAs for CacheSink {
                 let partition_count = self.batches.len();
                 write!(f, "MemoryTable (partitions={partition_count})")
             }
+            DisplayFormatType::TreeRender => todo!(),
         }
     }
 }
