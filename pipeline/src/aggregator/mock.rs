@@ -1,6 +1,6 @@
 //! Provides a mock implmentation of the aggregator actor.
 use async_trait::async_trait;
-use ceramic_actor::{Actor, Handler, Message};
+use ceramic_actor::{Actor, Handler, Message, Shutdown};
 use mockall::mock;
 use prometheus_client::registry::Registry;
 
@@ -68,6 +68,13 @@ impl Actor for MockAggregator {
     type Envelope = AggregatorEnvelope;
 }
 impl AggregatorActor for MockAggregator {}
+
+#[async_trait]
+impl Shutdown for MockAggregator {
+    async fn shutdown(&mut self) {
+        // Mock implementation - no cleanup needed
+    }
+}
 
 impl MockAggregator {
     /// Spawn a mock aggregator actor.

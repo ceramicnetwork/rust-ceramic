@@ -61,6 +61,16 @@ pub trait Actor {
     }
 }
 
+/// Optional trait for actors that need to perform cleanup operations during shutdown.
+/// Only actors that need cleanup should implement this trait.
+#[async_trait]
+pub trait Shutdown {
+    /// Called when the actor is shutting down to allow for cleanup operations.
+    /// This method is called after all pending messages have been processed
+    /// but before the actor loop exits.
+    async fn shutdown(&mut self);
+}
+
 /// Wrapper of any T with its tracing span context.
 #[derive(Debug)]
 pub struct Traced<T> {
