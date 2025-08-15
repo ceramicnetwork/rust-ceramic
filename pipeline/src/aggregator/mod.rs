@@ -35,7 +35,7 @@ use arrow::{
 };
 use arrow_schema::{DataType, SchemaRef};
 use async_trait::async_trait;
-use ceramic_actor::{actor_envelope, Actor, Handler, Message};
+use ceramic_actor::{actor_envelope, Actor, Handler, Message, Shutdown as ActorShutdown};
 use ceramic_core::{StreamId, StreamIdType};
 use cid::Cid;
 use datafusion::{
@@ -67,7 +67,7 @@ use model_instance_patch::ModelInstancePatch;
 use model_patch::ModelPatch;
 use shutdown::{Shutdown, ShutdownSignal};
 use tokio::{select, sync::broadcast, task::JoinHandle};
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     cache_table::CacheTable,
@@ -802,37 +802,46 @@ impl Aggregator {
             .await
             .context("writing to mem table data")?;
 
-        let count = self
-            .ctx
+        let count = self.count_cache().await?;
+        // If we have enough data cached in memory write it out to persistent store
+        if count >= self.max_cached_rows {
+            self.flush_cache().await?;
+        }
+        ordered.collect().await.context("collecting ordered events")
+    }
+
+    async fn count_cache(&self) -> Result<usize> {
+        self.ctx
             .table(EVENT_STATES_MEM_TABLE)
             .await?
             .count()
             .await
-            .context("count mem table")?;
-        // If we have enough data cached in memory write it out to persistent store
-        if count >= self.max_cached_rows {
-            self.ctx
-                .table(EVENT_STATES_MEM_TABLE)
-                .await?
-                .write_table(
-                    EVENT_STATES_PERSISTENT_TABLE,
-                    DataFrameWriteOptions::new()
-                        .with_partition_by(vec!["event_cid_partition".to_owned()]),
-                )
-                .await
-                .context("writing to persistent table")?;
-            // Clear all data in the memory batch, by writing an empty batch
-            self.ctx
-                .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))
-                .context("reading empty batch")?
-                .write_table(
-                    EVENT_STATES_MEM_TABLE,
-                    DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
-                )
-                .await
-                .context("clearing mem table")?;
-        }
-        ordered.collect().await.context("collecting ordered events")
+            .context("count mem table")
+    }
+
+    async fn flush_cache(&self) -> Result<usize> {
+        let cnt = self.count_cache().await?;
+        self.ctx
+            .table(EVENT_STATES_MEM_TABLE)
+            .await?
+            .write_table(
+                EVENT_STATES_PERSISTENT_TABLE,
+                DataFrameWriteOptions::new()
+                    .with_partition_by(vec!["event_cid_partition".to_owned()]),
+            )
+            .await
+            .context("writing to persistent table")?;
+        // Clear all data in the memory batch, by writing an empty batch
+        self.ctx
+            .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))
+            .context("reading empty batch")?
+            .write_table(
+                EVENT_STATES_MEM_TABLE,
+                DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
+            )
+            .await
+            .context("clearing mem table")?;
+        Ok(cnt)
     }
 }
 
@@ -888,11 +897,31 @@ actor_envelope! {
     AggregatorEnvelope,
     AggregatorActor,
     AggregatorRecorder,
+    with_shutdown,
     SubscribeSince => SubscribeSinceMsg,
     NewConclusionEvents => NewConclusionEventsMsg,
     // TODO: Remove this message and use the analogous message on the Resolver.
     // This way the canonical stream state is provided via the API
     StreamState => StreamStateMsg,
+}
+
+#[async_trait]
+impl ActorShutdown for Aggregator {
+    async fn shutdown(&mut self) {
+        info!("Aggregator shutdown: flushing cached data to persistent storage...");
+
+        match self.flush_cache().await {
+            Ok(rows) => {
+                debug!(
+                    "Aggregator shutdown: successfully flushed {} rows to persistent storage",
+                    rows
+                );
+            }
+            Err(e) => {
+                error!("Aggregator shutdown: failed to flush cached data: {}", e);
+            }
+        }
+    }
 }
 
 #[async_trait]
