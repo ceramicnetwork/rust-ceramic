@@ -3265,4 +3265,213 @@ mod tests {
             | 1                 | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 2           | did:key:bob | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631} | baeabeibrydyefwuzizf6s32lbuu27rpjibrbtsziqukscbnuo3y52pgmha | 0          | 0            | {"content":{"accountRelation":{"fields":[],"type":"set"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{}} | [Account relation of type Set must include at least one field] |        |          |
             +-------------------+-------------------------------------------------------------+-------------+-------------+-----------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------------------------------------------------------------+--------+----------+"#]].assert_eq(&event_states.to_string());
     }
+
+    #[tokio::test]
+    async fn cache_flush_on_shutdown() {
+        use object_store::memory::InMemory;
+        let object_store = Arc::new(InMemory::new());
+
+        // Create test events (just 2 events - will stay in cache with threshold of 5)
+        let events = &model_and_mids_events()[0..2];
+        let conclusion_events = conclusion_events_to_record_batch(events).unwrap();
+
+        let phase1_result = {
+            let mut mock_concluder = MockConcluder::new();
+            mock_concluder
+                .expect_handle_subscribe_since()
+                .times(1)
+                .return_once(|_msg| {
+                    Ok(Box::pin(RecordBatchStreamAdapter::new(
+                        schemas::conclusion_events(),
+                        stream::empty(),
+                    )))
+                });
+
+            let ctx = init_with_object_store(
+                mock_concluder,
+                object_store.clone(),
+                Some(5), // Cache threshold of 5 - our 2 events will stay in memory
+            )
+            .await
+            .unwrap();
+
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events.clone()),
+            )
+            .await
+            .unwrap();
+
+            ctx.shutdown().await.unwrap();
+            result
+        };
+
+        // Phase 2: Restart aggregator and query for existing data
+        let phase2_result = {
+            let mut mock_concluder = MockConcluder::new();
+            mock_concluder
+                .expect_handle_subscribe_since()
+                .times(1)
+                .return_once(|_msg| {
+                    Ok(Box::pin(RecordBatchStreamAdapter::new(
+                        schemas::conclusion_events(),
+                        stream::empty(),
+                    )))
+                });
+
+            let ctx = init_with_object_store(mock_concluder, object_store.clone(), Some(5))
+                .await
+                .unwrap();
+
+            // Query for existing data using direct subscription - finds nothing due to cache loss bug
+            let mut subscription = ctx
+                .actor_handle
+                .send(SubscribeSinceMsg {
+                    projection: None,
+                    filters: None,
+                    limit: None,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+
+            // DO NOT send new events - we want to see what persisted from Phase 1
+            // Wait briefly for any persisted data, then timeout
+            let result = tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                subscription.try_next(),
+            )
+            .await;
+
+            let event_states = match result {
+                Ok(Ok(Some(batch))) => pretty_event_states(vec![batch]).await.unwrap().to_string(),
+                _ => "No persisted data found".to_string(),
+            };
+
+            ctx.shutdown().await.unwrap();
+            event_states
+        };
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before | chain_id |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |        |          |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |        |          |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+"#
+        ]].assert_eq(&phase1_result.to_string());
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before | chain_id |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |        |          |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |        |          |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+--------+----------+"#
+        ]].assert_eq(&phase2_result.to_string());
+    }
+
+    #[tokio::test]
+    async fn cache_flush_on_threshold() {
+        use object_store::memory::InMemory;
+        let object_store = Arc::new(InMemory::new());
+
+        // Create test events - we'll use 4 events with threshold of 3
+        let events = &model_and_mids_events()[0..4]; // Get first 4 events
+        let conclusion_events = conclusion_events_to_record_batch(events).unwrap();
+
+        // Phase 1: Process events that will exceed cache threshold
+        let phase1_result = {
+            let mut mock_concluder = MockConcluder::new();
+            mock_concluder
+                .expect_handle_subscribe_since()
+                .times(1)
+                .return_once(|_msg| {
+                    Ok(Box::pin(RecordBatchStreamAdapter::new(
+                        schemas::conclusion_events(),
+                        stream::empty(),
+                    )))
+                });
+
+            let ctx = init_with_object_store(
+                mock_concluder,
+                object_store.clone(),
+                Some(3), // Cache threshold of 3 - our 4 events should trigger flush
+            )
+            .await
+            .unwrap();
+
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events.clone()),
+            )
+            .await
+            .unwrap();
+
+            ctx.shutdown().await.unwrap();
+            result
+        };
+
+        // Phase 2: Restart aggregator and query for persisted data
+        let phase2_result = {
+            let mut mock_concluder = MockConcluder::new();
+            mock_concluder
+                .expect_handle_subscribe_since()
+                .times(1)
+                .return_once(|_msg| {
+                    Ok(Box::pin(RecordBatchStreamAdapter::new(
+                        schemas::conclusion_events(),
+                        stream::empty(),
+                    )))
+                });
+
+            let ctx = init_with_object_store(mock_concluder, object_store.clone(), Some(3))
+                .await
+                .unwrap();
+
+            // Query for existing data using direct subscription - should find persisted data
+            let mut subscription = ctx
+                .actor_handle
+                .send(SubscribeSinceMsg {
+                    projection: None,
+                    filters: None,
+                    limit: None,
+                })
+                .await
+                .unwrap()
+                .unwrap();
+
+            // DO NOT send new events - we want to see what persisted from Phase 1
+            // The data should be available immediately since it was flushed to persistent storage
+            let batch = subscription.try_next().await.unwrap().unwrap();
+            let event_states = pretty_event_states(vec![batch]).await.unwrap();
+
+            ctx.shutdown().await.unwrap();
+            event_states
+        };
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before        | chain_id   |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |               |            |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |               |            |
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                | 1744383131980 | test:chain |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
+        ]].assert_eq(&phase1_result.to_string());
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before        | chain_id   |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |               |            |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |               |            |
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                | 1744383131980 | test:chain |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
+        ]].assert_eq(&phase2_result.to_string());
+    }
 }
