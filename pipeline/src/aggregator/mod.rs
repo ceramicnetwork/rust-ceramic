@@ -35,7 +35,7 @@ use arrow::{
 };
 use arrow_schema::{DataType, SchemaRef};
 use async_trait::async_trait;
-use ceramic_actor::{actor_envelope, Actor, Handler, Message};
+use ceramic_actor::{actor_envelope, Actor, Handler, Message, Shutdown as ActorShutdown};
 use ceramic_core::{StreamId, StreamIdType};
 use cid::Cid;
 use datafusion::{
@@ -67,7 +67,7 @@ use model_instance_patch::ModelInstancePatch;
 use model_patch::ModelPatch;
 use shutdown::{Shutdown, ShutdownSignal};
 use tokio::{select, sync::broadcast, task::JoinHandle};
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::{
     cache_table::CacheTable,
@@ -888,11 +888,64 @@ actor_envelope! {
     AggregatorEnvelope,
     AggregatorActor,
     AggregatorRecorder,
+    with_shutdown,
     SubscribeSince => SubscribeSinceMsg,
     NewConclusionEvents => NewConclusionEventsMsg,
     // TODO: Remove this message and use the analogous message on the Resolver.
     // This way the canonical stream state is provided via the API
     StreamState => StreamStateMsg,
+}
+
+#[async_trait]
+impl ActorShutdown for Aggregator {
+    async fn shutdown(&mut self) {
+        info!("Aggregator shutdown: flushing cached data to persistent storage...");
+
+        // Check if there's any cached data that needs to be flushed
+        let count_result = match self.ctx.table(EVENT_STATES_MEM_TABLE).await {
+            Ok(table) => table.count().await,
+            Err(e) => Err(e),
+        };
+
+        match count_result {
+            Ok(0) => {
+                debug!("Aggregator shutdown: no cached data to flush");
+            }
+            Ok(count) => {
+                debug!(
+                    "Aggregator shutdown: flushing {} cached rows to persistent storage",
+                    count
+                );
+
+                // Flush cache to persistent storage (same logic as threshold-based flush)
+                let flush_result = match self.ctx.table(EVENT_STATES_MEM_TABLE).await {
+                    Ok(table) => {
+                        table
+                            .write_table(
+                                EVENT_STATES_PERSISTENT_TABLE,
+                                DataFrameWriteOptions::new()
+                                    .with_partition_by(vec!["event_cid_partition".to_owned()]),
+                            )
+                            .await
+                    }
+                    Err(e) => Err(e),
+                };
+
+                match flush_result {
+                    Ok(_) => {
+                        debug!("Aggregator shutdown: successfully flushed {} rows to persistent storage", count);
+                        // Note: We skip clearing the memory cache during shutdown since the aggregator is terminating
+                    }
+                    Err(e) => {
+                        error!("Aggregator shutdown: failed to flush cached data: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Aggregator shutdown: failed to check cache count: {}", e);
+            }
+        }
+    }
 }
 
 #[async_trait]
