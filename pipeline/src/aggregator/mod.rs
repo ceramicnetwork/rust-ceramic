@@ -236,16 +236,15 @@ impl Aggregator {
             object_store: ctx.object_store.clone(),
         };
 
+        // If the aggregator is out of sync with the conclusion events, starting from max_event_state_order
+        // should guarantee we replay any potentially missed events
+        let conclusion_offset = max_conclusion_event_order.min(max_event_state_order);
+
         let (handle, task_handle) = Self::spawn(size, aggregator, metrics, shutdown.wait_fut());
         let h = handle.clone();
         let sub_handle = tokio::spawn(async move {
-            if let Err(err) = concluder_subscription(
-                shutdown.wait_fut(),
-                concluder,
-                h,
-                max_conclusion_event_order,
-            )
-            .await
+            if let Err(err) =
+                concluder_subscription(shutdown.wait_fut(), concluder, h, conclusion_offset).await
             {
                 error!(%err, "aggregator actor poll_concluder task failed");
             }
@@ -481,22 +480,27 @@ impl Aggregator {
                 ],
             )
             .context("setup join")?
-            .select(vec![
-                col("conclusion_event_order"),
-                anon_col("stream_cid").alias("stream_cid"),
-                anon_col("stream_type").alias("stream_type"),
-                anon_col("controller").alias("controller"),
-                anon_col("dimensions").alias("dimensions"),
-                anon_col("event_cid").alias("event_cid"),
-                anon_col("event_type").alias("event_type"),
-                col("previous"),
-                col("previous_data"),
-                col("previous_height"),
-                anon_col("data").alias("data"),
-                anon_col("before").alias("before"),
-                anon_col("chain_id").alias("chain_id"),
-                col("event_cid_partition"),
-            ])?)
+            .distinct_on(
+                vec![anon_col("event_cid")],
+                vec![
+                    col("conclusion_event_order"),
+                    anon_col("stream_cid").alias("stream_cid"),
+                    anon_col("stream_type").alias("stream_type"),
+                    anon_col("controller").alias("controller"),
+                    anon_col("dimensions").alias("dimensions"),
+                    anon_col("event_cid").alias("event_cid"),
+                    anon_col("event_type").alias("event_type"),
+                    anon_col("data").alias("data"),
+                    col("previous"),
+                    col("event_cid_partition"),
+                    anon_col("before").alias("before"),
+                    anon_col("chain_id").alias("chain_id"),
+                    col("previous_data"),
+                    col("previous_height"),
+                ],
+                None,
+            )
+            .context("distinct")?)
     }
 
     // Retrieves all pending events and joins them with the models if they are now available.
@@ -3527,4 +3531,161 @@ mod tests {
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
         ]].assert_eq(&phase2_result.to_string());
     }
+
+    // Tests for idempotent patch application
+    #[tokio::test]
+    async fn patch_idempotency() {
+        // Test idempotency by processing same events twice
+        let events = &[
+            &model_and_mids_events()[0..4],
+            &model_and_mids_events()[0..4],
+        ]
+        .concat();
+        let conclusion_events = conclusion_events_to_record_batch(events).unwrap();
+
+        let ctx = init().await.unwrap();
+
+        let result = do_pass(
+            ctx.actor_handle.clone(),
+            None,
+            Some(conclusion_events.clone()),
+        )
+        .await
+        .unwrap();
+
+        ctx.shutdown().await.unwrap();
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before        | chain_id   |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |               |            |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |               |            |
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                | 1744383131980 | test:chain |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
+        ]].assert_eq(&result.to_string());
+    }
+
+    #[tokio::test]
+    async fn patch_idempotency_at_batch_boundaries() {
+        let events = &model_and_mids_events()[0..4];
+        let ctx = init().await.unwrap();
+
+        // First processing: process events normally
+        let first_result = {
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events_to_record_batch(events).unwrap()),
+            )
+            .await
+            .unwrap();
+            // ctx.shutdown().await.unwrap();
+            result
+        };
+
+        // Second processing: process same events again in a new batch
+        let second_result = {
+            // let ctx = init().await.unwrap();
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events_to_record_batch(events).unwrap()),
+            )
+            .await
+            .unwrap();
+            ctx.shutdown().await.unwrap();
+            result
+        };
+
+        println!("first_result: {}", first_result.to_string());
+        println!("second_result: {}", second_result.to_string());
+
+        expect![[r#"
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before        | chain_id   |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+            | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |               |            |
+            | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |               |            |
+            | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                | 1744383131980 | test:chain |
+            | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
+            +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
+        ]].assert_eq(&first_result.to_string());
+
+        // Results should be identical - this is the core idempotency test
+        assert_eq!(second_result.to_string(), first_result.to_string());
+    }
+
+    // #[tokio::test]
+    // async fn idempotency_error_recovery() {
+    //     let events = &model_and_mids_events()[0..2];
+
+    //     // First processing: process events normally
+    //     let first_result = {
+    //         let ctx = init().await.unwrap();
+    //         let result = do_pass(
+    //             ctx.actor_handle.clone(),
+    //             None,
+    //             Some(conclusion_events_to_record_batch(events).unwrap()),
+    //         )
+    //         .await
+    //         .unwrap();
+    //         ctx.shutdown().await.unwrap();
+    //         result
+    //     };
+
+    //     // Second processing: process same events again (recovery scenario)
+    //     let recovery_result = {
+    //         let ctx = init().await.unwrap();
+    //         let result = do_pass(
+    //             ctx.actor_handle.clone(),
+    //             None,
+    //             Some(conclusion_events_to_record_batch(events).unwrap()),
+    //         )
+    //         .await
+    //         .unwrap();
+    //         ctx.shutdown().await.unwrap();
+    //         result
+    //     };
+
+    //     // Results should be identical - this is the core idempotency test
+    //     assert_eq!(first_result.to_string(), recovery_result.to_string());
+    // }
+
+    // #[tokio::test]
+    // async fn idempotency_cross_stream() {
+    //     let events = &model_and_mids_events()[0..2];
+
+    //     // First processing: process events normally
+    //     let first_result = {
+    //         let ctx = init().await.unwrap();
+    //         let result = do_pass(
+    //             ctx.actor_handle.clone(),
+    //             None,
+    //             Some(conclusion_events_to_record_batch(events).unwrap()),
+    //         )
+    //         .await
+    //         .unwrap();
+    //         ctx.shutdown().await.unwrap();
+    //         result
+    //     };
+
+    //     // Second processing: process same events again (cross-stream scenario)
+    //     let cross_stream_result = {
+    //         let ctx = init().await.unwrap();
+    //         let result = do_pass(
+    //             ctx.actor_handle.clone(),
+    //             None,
+    //             Some(conclusion_events_to_record_batch(events).unwrap()),
+    //         )
+    //         .await
+    //         .unwrap();
+    //         ctx.shutdown().await.unwrap();
+    //         result
+    //     };
+
+    //     // Results should be identical - this is the core idempotency test
+    //     assert_eq!(first_result.to_string(), cross_stream_result.to_string());
+    // }
 }
