@@ -13,3 +13,5 @@ openapi-generator-cli.jar
 ceramic_cicddb.sqlite*
 event-svc/model_error_counts.csv
 /.history
+
+ceramic_dump/

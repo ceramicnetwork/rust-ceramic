@@ -59,7 +59,7 @@ use datafusion::{
         WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{array_empty, cast, when, wildcard, DataFrame},
+    prelude::{array_empty, cast, coalesce, when, wildcard, DataFrame},
     sql::TableReference,
 };
 use futures::{StreamExt as _, TryStreamExt as _};
@@ -452,7 +452,7 @@ impl Aggregator {
             .with_column_renamed("data", "previous_data")?
             .with_column_renamed("event_height", "previous_height")?;
 
-        Ok(conclusion_events
+        let conclusion_events = conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
             // first element of the previous array.
             .select(vec![
@@ -470,7 +470,43 @@ impl Aggregator {
                 col("before"),
                 col("chain_id"),
                 cid_part(col("event_cid")).alias("event_cid_partition"),
-            ])?
+            ])
+            .context("selecting conclusion events")?
+            .alias("conclusion_events")?;
+
+        let dupes = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .join_on(
+                conclusion_events.clone(),
+                JoinType::Left,
+                vec![
+                    table_col(EVENT_STATES_TABLE, "event_cid_partition")
+                        .eq(col("conclusion_events.event_cid_partition")),
+                    table_col(EVENT_STATES_TABLE, "event_cid")
+                        .eq(col("conclusion_events.event_cid")),
+                ],
+            )
+            .context("join dupes")?
+            .select(vec![
+                table_col(EVENT_STATES_TABLE, "conclusion_event_order"),
+                table_col(EVENT_STATES_TABLE, "stream_cid"),
+                table_col(EVENT_STATES_TABLE, "stream_type"),
+                table_col(EVENT_STATES_TABLE, "controller"),
+                table_col(EVENT_STATES_TABLE, "dimensions"),
+                table_col(EVENT_STATES_TABLE, "event_cid"),
+                table_col(EVENT_STATES_TABLE, "event_type"),
+                table_col(EVENT_STATES_TABLE, "data"),
+                table_col(EVENT_STATES_TABLE, "event_cid_partition"),
+                table_col(EVENT_STATES_TABLE, "before"),
+                table_col(EVENT_STATES_TABLE, "chain_id"),
+                col("previous"),
+            ])
+            .context("dedupe conclusion events")?
+            .alias("dupes")?;
+
+        let conclusion_events = conclusion_events
             .join_on(
                 event_states,
                 JoinType::Left,
@@ -480,27 +516,80 @@ impl Aggregator {
                 ],
             )
             .context("setup join")?
-            .distinct_on(
-                vec![anon_col("event_cid")],
-                vec![
-                    col("conclusion_event_order"),
-                    anon_col("stream_cid").alias("stream_cid"),
-                    anon_col("stream_type").alias("stream_type"),
-                    anon_col("controller").alias("controller"),
-                    anon_col("dimensions").alias("dimensions"),
-                    anon_col("event_cid").alias("event_cid"),
-                    anon_col("event_type").alias("event_type"),
-                    anon_col("data").alias("data"),
-                    col("previous"),
-                    col("event_cid_partition"),
-                    anon_col("before").alias("before"),
-                    anon_col("chain_id").alias("chain_id"),
-                    col("previous_data"),
-                    col("previous_height"),
-                ],
-                None,
+            .select(vec![
+                col("conclusion_event_order"),
+                col("conclusion_events.stream_cid").alias("stream_cid"),
+                col("conclusion_events.stream_type").alias("stream_type"),
+                col("conclusion_events.controller").alias("controller"),
+                col("conclusion_events.dimensions").alias("dimensions"),
+                col("conclusion_events.event_cid").alias("event_cid"),
+                col("conclusion_events.event_type").alias("event_type"),
+                col("conclusion_events.data").alias("data"),
+                col("event_cid_partition"),
+                col("conclusion_events.before").alias("before"),
+                col("conclusion_events.chain_id").alias("chain_id"),
+                col("conclusion_events.previous").alias("previous"),
+                col("previous_data"),
+                col("previous_height"),
+            ])
+            .context("select joined conclusion events")?
+            .alias("conclusion_events")?;
+
+        let conclusion_events = conclusion_events
+            .join_on(
+                dupes,
+                JoinType::Left,
+                vec![col("conclusion_events.event_cid").eq(col("dupes.event_cid"))],
             )
-            .context("distinct")?)
+            .context("join dupes to conclusion events")?
+            .select(vec![
+                coalesce(vec![
+                    col("dupes.conclusion_event_order"),
+                    col("conclusion_events.conclusion_event_order"),
+                ])
+                .alias("conclusion_event_order"),
+                coalesce(vec![
+                    col("dupes.stream_cid"),
+                    col("conclusion_events.stream_cid"),
+                ])
+                .alias("stream_cid"),
+                coalesce(vec![
+                    col("dupes.stream_type"),
+                    col("conclusion_events.stream_type"),
+                ])
+                .alias("stream_type"),
+                coalesce(vec![
+                    col("dupes.controller"),
+                    col("conclusion_events.controller"),
+                ])
+                .alias("controller"),
+                coalesce(vec![
+                    col("dupes.dimensions"),
+                    col("conclusion_events.dimensions"),
+                ])
+                .alias("dimensions"),
+                col("conclusion_events.event_cid"),
+                coalesce(vec![
+                    col("dupes.event_type"),
+                    col("conclusion_events.event_type"),
+                ])
+                .alias("event_type"),
+                coalesce(vec![col("dupes.data"), col("conclusion_events.data")]).alias("data"),
+                col("conclusion_events.event_cid_partition").alias("event_cid_partition"),
+                coalesce(vec![col("dupes.before"), col("conclusion_events.before")])
+                    .alias("before"),
+                coalesce(vec![
+                    col("dupes.chain_id"),
+                    col("conclusion_events.chain_id"),
+                ])
+                .alias("chain_id"),
+                col("conclusion_events.previous").alias("previous"),
+                col("conclusion_events.previous_data").alias("previous_data"),
+                col("conclusion_events.previous_height").alias("previous_height"),
+            ])
+            .context("final conclusion select")?;
+
+        Ok(conclusion_events)
     }
 
     // Retrieves all pending events and joins them with the models if they are now available.
@@ -1271,6 +1360,22 @@ mod tests {
         ConclusionData, ConclusionEvent, ConclusionInit, ConclusionTime,
     };
 
+    async fn init_with_cache(
+        max_cached_rows: Option<usize>,
+    ) -> anyhow::Result<TestContext<AggregatorHandle>> {
+        let mut mock_concluder = MockConcluder::new();
+        mock_concluder
+            .expect_handle_subscribe_since()
+            .once()
+            .return_once(|_msg| {
+                Ok(Box::pin(RecordBatchStreamAdapter::new(
+                    schemas::conclusion_events(),
+                    stream::empty(),
+                )))
+            });
+        init_with_concluder(mock_concluder, max_cached_rows).await
+    }
+
     async fn init() -> anyhow::Result<TestContext<AggregatorHandle>> {
         let mut mock_concluder = MockConcluder::new();
         mock_concluder
@@ -1282,13 +1387,14 @@ mod tests {
                     stream::empty(),
                 )))
             });
-        init_with_concluder(mock_concluder).await
+        init_with_concluder(mock_concluder, None).await
     }
 
     async fn init_with_concluder(
         mock_concluder: MockConcluder,
+        max_cached_rows: Option<usize>,
     ) -> anyhow::Result<TestContext<AggregatorHandle>> {
-        init_with_object_store(mock_concluder, Arc::new(InMemory::new()), None).await
+        init_with_object_store(mock_concluder, Arc::new(InMemory::new()), max_cached_rows).await
     }
     async fn init_with_object_store(
         mock_concluder: MockConcluder,
@@ -1957,7 +2063,7 @@ mod tests {
                 )))
             });
 
-        let ctx = init_with_concluder(mock_concluder).await.unwrap();
+        let ctx = init_with_concluder(mock_concluder, None).await.unwrap();
         let event_states = do_pass(ctx.actor_handle.clone(), None, None).await.unwrap();
         expect![[r#"
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
@@ -3535,17 +3641,25 @@ mod tests {
     // Tests for idempotent patch application
     #[tokio::test]
     async fn patch_idempotency() {
-        // Test idempotency by processing same events twice
-        let events = &[
-            &model_and_mids_events()[0..4],
-            &model_and_mids_events()[0..4],
-        ]
-        .concat();
+        // Test idempotency by processing same events twice - should never have duplicate events in one pass
+        let events = &[&model_and_mids_events()[0..4]].concat();
         let conclusion_events = conclusion_events_to_record_batch(events).unwrap();
 
         let ctx = init().await.unwrap();
 
         let result = do_pass(
+            ctx.actor_handle.clone(),
+            None,
+            Some(conclusion_events.clone()),
+        )
+        .await
+        .unwrap();
+
+        ctx.shutdown().await.unwrap();
+
+        let ctx = init().await.unwrap();
+
+        let result2 = do_pass(
             ctx.actor_handle.clone(),
             None,
             Some(conclusion_events.clone()),
@@ -3565,6 +3679,17 @@ mod tests {
             | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
         ]].assert_eq(&result.to_string());
+
+        expect![[r#"
+        +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+        | event_state_order | stream_cid                                                  | stream_type | controller    | dimensions                                                                                                                                          | event_cid                                                   | event_type | event_height | data                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | validation_errors | before        | chain_id   |
+        +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
+        | 1                 | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 2           | did:key:bob   | {controller: 6469643a6b65793a626f62, model: ce01040171710b0009686d6f64656c2d7631}                                                                   | baeabeieatrkhby3dlzev6wuyin66mfvwmew2rm3vh7bo4nfigjflnbmf7u | 0          | 0            | {"content":{"accountRelation":{"type":"list"},"implements":[],"interface":false,"name":"TestSmallModel","relations":{},"schema":{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"blue":{"format":"int32","type":"integer"},"creator":{"type":"string"},"green":{"format":"int32","type":"integer"},"red":{"format":"int32","type":"integer"}},"required":["creator","red","green","blue"],"title":"SmallModel","type":"object"},"version":"2.0","views":{}},"metadata":{"foo":1,"shouldIndex":true}} | []                |               |            |
+        | 2                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeials2i6o2ppkj55kfbh7r2fzc73r2esohqfivekpag553lyc7f6bi | 0          | 0            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                |               |            |
+        | 3                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeihyzbu2wxx4yj37mozb76gkxln2dt5zxxasivhuzbnxiqd5w4xygq | 1          | 1            | {"content":{"blue":255,"creator":"alice","green":255,"red":255},"metadata":{"foo":1,"shouldIndex":true}}                                                                                                                                                                                                                                                                                                                                                                                                                                                  | []                | 1744383131980 | test:chain |
+        | 4                 | baeabeicdwdrilh6gazn6a7eruxbt5q46cquzimxsk52vcwobfvjhlndafm | 3           | did:key:alice | {controller: 6469643a6b65793a616c696365, model: ce010201001220809c5470e3635e495f5a98437de616b6612da8b3753fc2ee34a8324ab68585fd, unique: 77676b3533} | baeabeibrtuyyqwd6y4aa62qxaimjhafielf7fc22fa5b7i7vptcu5263em | 0          | 2            | {"metadata":{"foo":2,"shouldIndex":true},"content":{"blue":255,"creator":"alice","green":255,"red":0}}                                                                                                                                                                                                                                                                                                                                                                                                                                                    | []                |               |            |
+        +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+"#
+    ]].assert_eq(&result2.to_string());
     }
 
     #[tokio::test]
@@ -3653,39 +3778,196 @@ mod tests {
     //     assert_eq!(first_result.to_string(), recovery_result.to_string());
     // }
 
-    // #[tokio::test]
-    // async fn idempotency_cross_stream() {
-    //     let events = &model_and_mids_events()[0..2];
+    fn random_cid() -> Cid {
+        use multihash_codetable::{Code, MultihashDigest};
+        use rand::{thread_rng, Rng};
 
-    //     // First processing: process events normally
-    //     let first_result = {
-    //         let ctx = init().await.unwrap();
-    //         let result = do_pass(
-    //             ctx.actor_handle.clone(),
-    //             None,
-    //             Some(conclusion_events_to_record_batch(events).unwrap()),
-    //         )
-    //         .await
-    //         .unwrap();
-    //         ctx.shutdown().await.unwrap();
-    //         result
-    //     };
+        let mut data = [0u8; 8];
+        thread_rng().fill(&mut data);
+        let hash = MultihashDigest::digest(&Code::Sha2_256, &data);
+        Cid::new_v1(0x00, hash)
+    }
 
-    //     // Second processing: process same events again (cross-stream scenario)
-    //     let cross_stream_result = {
-    //         let ctx = init().await.unwrap();
-    //         let result = do_pass(
-    //             ctx.actor_handle.clone(),
-    //             None,
-    //             Some(conclusion_events_to_record_batch(events).unwrap()),
-    //         )
-    //         .await
-    //         .unwrap();
-    //         ctx.shutdown().await.unwrap();
-    //         result
-    //     };
+    fn test_model() -> (StreamId, ConclusionEvent) {
+        let model_def = ModelDefinition::new_v2::<SmallModel>(
+            "TestSmallModel".to_owned(),
+            None,
+            false,
+            None,
+            None,
+            ModelAccountRelationV2::List,
+        )
+        .unwrap();
 
-    //     // Results should be identical - this is the core idempotency test
-    //     assert_eq!(first_result.to_string(), cross_stream_result.to_string());
-    // }
+        let model_stream_id =
+            StreamId::from_str("k2t6wz4yhfp1pc9l42mm6vh20xmhm9ac7cznnpu4xcxe4jds13l9sjknm1accd")
+                .unwrap();
+        (
+            model_stream_id.clone(),
+            ConclusionEvent::Data(ConclusionData {
+                order: 0,
+                event_cid: model_stream_id.cid,
+                init: ConclusionInit {
+                    stream_cid: model_stream_id.cid,
+                    stream_type: StreamIdType::Model as u8,
+                    controller: "did:key:bob".to_owned(),
+                    dimensions: vec![
+                        ("controller".to_owned(), b"did:key:bob".to_vec()),
+                        ("model".to_owned(), METAMODEL_STREAM_ID.to_vec()),
+                    ],
+                },
+                previous: vec![],
+                data: serde_json::to_string(&json!({
+                    "metadata":{
+                        "foo":1,
+                        "shouldIndex":true
+                    },
+                    "content": model_def,
+                }))
+                .unwrap()
+                .into(),
+            }),
+        )
+    }
+
+    /// WARNING: the order used here MUST BE GLOBAL for your events, so if you call this multiple times
+    /// you must correct the order manually.
+    fn n_mid_events(to_add: u64, model_stream_id: &StreamId) -> Vec<ConclusionEvent> {
+        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
+        // This makes testing easier as changing the contents does not mean you need to update all of
+        // the cids.
+
+        let unique = random_cid().to_bytes();
+        let instance_stream_id = StreamId::document(random_cid());
+        let stream_init = ConclusionInit {
+            stream_cid: instance_stream_id.cid,
+            stream_type: StreamIdType::ModelInstanceDocument as u8,
+            controller: "did:key:alice".to_owned(),
+            dimensions: vec![
+                ("controller".to_owned(), b"did:key:alice".to_vec()),
+                ("model".to_owned(), model_stream_id.to_vec()),
+                ("unique".to_owned(), unique),
+            ],
+        };
+
+        let mut cids = Vec::with_capacity(to_add as usize);
+        let mut events = Vec::with_capacity(to_add as usize);
+        for i in 0..to_add {
+            let event_cid = random_cid();
+            cids.push(event_cid);
+            let event = match i {
+                0 => ConclusionEvent::Data(ConclusionData {
+                    order: 1,
+                    event_cid,
+                    init: stream_init.clone(),
+                    previous: vec![],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{
+                        "foo":1,
+                        "shouldIndex":true
+                    },
+                    "content":{
+                        "creator":"alice",
+                        "red":255,
+                        "green":255,
+                        "blue":255
+                    }}))
+                    .unwrap()
+                    .into(),
+                }),
+                _ => ConclusionEvent::Data(ConclusionData {
+                    order: i + 1,
+                    event_cid,
+                    init: stream_init.clone(),
+                    previous: vec![cids[i as usize - 1]],
+                    data: serde_json::to_string(&json!({
+                    "metadata":{"foo":2},
+                    "content":[{
+                        "op":"replace",
+                        "path": "/red",
+                        "value":0
+                    }]}))
+                    .unwrap()
+                    .into(),
+                }),
+            };
+            events.push(event);
+        }
+        events
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn interspersed_events() {
+        let (model_stream_id, model) = test_model();
+        let mid1_events = n_mid_events(10, &model_stream_id);
+        let mid2_events = n_mid_events(10, &model_stream_id);
+        let mid3_events = n_mid_events(10, &model_stream_id);
+        let mut events = [model]
+            .into_iter()
+            .chain(mid1_events[0..5].iter().cloned())
+            .chain(mid2_events[0..5].iter().cloned())
+            .chain(mid3_events[0..5].iter().cloned())
+            .chain(mid2_events[5..].iter().cloned())
+            .chain(mid1_events[5..].iter().cloned())
+            .chain(mid3_events[5..].iter().cloned())
+            .collect::<Vec<_>>();
+        events
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, event)| match event {
+                ConclusionEvent::Data(data) => data.order = i as u64,
+                ConclusionEvent::Time(time) => time.order = i as u64,
+            });
+
+        // splice the 3 events together making sure each vec isn't reordered but not all in a row
+        let events = &events;
+
+        // First processing: process events normally
+        let first_result = {
+            let ctx = init_with_cache(Some(7)).await.unwrap();
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events_to_record_batch(events).unwrap()),
+            )
+            .await
+            .unwrap();
+            ctx.shutdown().await.unwrap();
+            result
+        };
+        let partial_result = {
+            let ctx = init_with_cache(Some(7)).await.unwrap();
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                Some(20),
+                Some(conclusion_events_to_record_batch(events).unwrap()),
+            )
+            .await
+            .unwrap();
+            ctx.shutdown().await.unwrap();
+            result
+        };
+        let third_result = {
+            let ctx = init_with_cache(Some(7)).await.unwrap();
+            let result = do_pass(
+                ctx.actor_handle.clone(),
+                None,
+                Some(conclusion_events_to_record_batch(events).unwrap()),
+            )
+            .await
+            .unwrap();
+            ctx.shutdown().await.unwrap();
+            result
+        };
+        let res = first_result.to_string();
+        let res2 = partial_result.to_string();
+        let res3 = third_result.to_string();
+        // Results should be identical - this is the core idempotency test
+        tracing::info!("first_result: {}", res);
+        tracing::info!("partial_result: {}", res2);
+        tracing::info!("third_result: {}", res3);
+        assert_eq!(res, res3);
+        assert!(!res.contains("cannot validate"));
+        assert!(!res2.contains("cannot validate"));
+    }
 }
