@@ -226,6 +226,9 @@ impl Aggregator {
                 })
         });
 
+        // replay events in case of a bad shutdown / failure to flush cache to disk
+        let max_conclusion_event_order = max_conclusion_event_order.min(max_event_state_order);
+
         // Spawn actor
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
         let aggregator = Aggregator {
