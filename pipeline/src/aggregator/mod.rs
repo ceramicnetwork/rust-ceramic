@@ -829,15 +829,25 @@ impl Aggregator {
             .await
             .context("writing to mem table data")?;
 
-        let count = self
-            .ctx
+        let count = self.count_cache().await?;
+        // If we have enough data cached in memory write it out to persistent store
+        if count >= self.max_cached_rows {
+            self.flush_cache().await?;
+        }
+        ordered.collect().await.context("collecting ordered events")
+    }
+
+    async fn count_cache(&self) -> Result<usize> {
+        self.ctx
             .table(EVENT_STATES_MEM_TABLE)
             .await?
             .count()
             .await
-            .context("count mem table")?;
-        // If we have enough data cached in memory write it out to persistent store
-        if count >= self.max_cached_rows {
+            .context("count mem table")
+    }
+
+    async fn flush_cache(&self) -> Result<usize> {
+        let cnt = self.count_cache().await?;
             self.ctx
                 .table(EVENT_STATES_MEM_TABLE)
                 .await?
@@ -858,8 +868,7 @@ impl Aggregator {
                 )
                 .await
                 .context("clearing mem table")?;
-        }
-        ordered.collect().await.context("collecting ordered events")
+        Ok(cnt)
     }
 }
 
@@ -928,48 +937,17 @@ impl ActorShutdown for Aggregator {
     async fn shutdown(&mut self) {
         info!("Aggregator shutdown: flushing cached data to persistent storage...");
 
-        // Check if there's any cached data that needs to be flushed
-        let count_result = match self.ctx.table(EVENT_STATES_MEM_TABLE).await {
-            Ok(table) => table.count().await,
-            Err(e) => Err(e),
-        };
-
-        match count_result {
-            Ok(0) => {
-                debug!("Aggregator shutdown: no cached data to flush");
-            }
-            Ok(count) => {
+        // Flush cache to persistent storage (same logic as threshold-based flush)
+        match self.flush_cache().await {
+            Ok(rows) => {
                 debug!(
-                    "Aggregator shutdown: flushing {} cached rows to persistent storage",
-                    count
+                    "Aggregator shutdown: successfully flushed {} rows to persistent storage",
+                    rows
                 );
-
-                // Flush cache to persistent storage (same logic as threshold-based flush)
-                let flush_result = match self.ctx.table(EVENT_STATES_MEM_TABLE).await {
-                    Ok(table) => {
-                        table
-                            .write_table(
-                                EVENT_STATES_PERSISTENT_TABLE,
-                                DataFrameWriteOptions::new()
-                                    .with_partition_by(vec!["event_cid_partition".to_owned()]),
-                            )
-                            .await
-                    }
-                    Err(e) => Err(e),
-                };
-
-                match flush_result {
-                    Ok(_) => {
-                        debug!("Aggregator shutdown: successfully flushed {} rows to persistent storage", count);
                         // Note: We skip clearing the memory cache during shutdown since the aggregator is terminating
                     }
                     Err(e) => {
                         error!("Aggregator shutdown: failed to flush cached data: {}", e);
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Aggregator shutdown: failed to check cache count: {}", e);
             }
         }
     }
