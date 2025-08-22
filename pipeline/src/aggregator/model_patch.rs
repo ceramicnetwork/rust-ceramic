@@ -176,6 +176,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                             }
                             Err(err) => {
                                 warn!(%err, event_cid=?Cid::read_bytes(event_cids.value(i)), "failed to apply patch to model event");
+                                tracing::debug!(%previous_height, %num_rows, patch=?String::from_utf8_lossy(patches.value(i)), previous_state=?String::from_utf8_lossy(previous_state), "failed to apply patch to model event");
                                 new_states.append_null();
                             }
                         };
@@ -215,5 +216,16 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 Arc::new(new_heights.finish()) as ArrayRef,
             ),
         ])))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test_log::test]
+    fn parse_patch() {
+        let patch = r#"{"metadata":{"shouldIndex":true},"content":{"accountRelation":{"type":"list"},"description":"A contextualized DAG pointer for a research object","immutableFields":["researchObjectID"],"implements":[],"interface":false,"name":"ResearchComponent","relations":{"researchObjectID":{"model":"kjzl6hvfrbw6cbe01it6hlcwopsv4cqrqysho4f1xd7rtqxew9yag3x2wxczhz0","type":"document"}},"schema":{"$defs":{"CeramicCommitID":{"maxLength":200,"title":"CeramicCommitID","type":"string"},"CeramicStreamID":{"maxLength":100,"title":"CeramicStreamID","type":"string"},"InterPlanetaryCID":{"maxLength":100,"title":"InterPlanetaryCID","type":"string"}},"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"properties":{"dagNode":{"$ref":"\#/$defs/InterPlanetaryCID"},"metadata":{"$ref":"\#/$defs/InterPlanetaryCID"},"mimeType":{"maxLength":128,"type":"string"},"name":{"maxLength":512,"type":"string"},"pathToNode":{"maxLength":512,"type":"string"},"researchObjectID":{"$ref":"\#/$defs/CeramicStreamID"},"researchObjectVersion":{"$ref":"\#/$defs/CeramicCommitID"}},"required":["name","mimeType","dagNode","pathToNode","researchObjectID","researchObjectVersion"],"type":"object"},"version":"2.0","views":{"owner":{"type":"documentAccount"},"researchObject":{"model":"kjzl6hvfrbw6cbe01it6hlcwopsv4cqrqysho4f1xd7rtqxew9yag3x2wxczhz0","property":"researchObjectID","type":"relationDocument"},"version":{"type":"documentVersion"}}}}"#;
+        let patch: DataContainerPatch = serde_json::from_str(patch).unwrap();
     }
 }

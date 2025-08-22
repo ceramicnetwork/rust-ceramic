@@ -477,37 +477,23 @@ impl Aggregator {
             .context("selecting conclusion events")?
             .alias("conclusion_events")?;
 
-        let dupes = self
-            .ctx
-            .table(EVENT_STATES_TABLE)
-            .await?
+        let before = conclusion_events.clone().count().await?;
+
+        // remove events we've already seen
+        let conclusion_events = conclusion_events
             .join_on(
-                conclusion_events.clone(),
-                JoinType::Left,
+                event_states.clone(),
+                JoinType::LeftAnti,
                 vec![
-                    table_col(EVENT_STATES_TABLE, "event_cid_partition")
-                        .eq(col("conclusion_events.event_cid_partition")),
-                    table_col(EVENT_STATES_TABLE, "event_cid")
-                        .eq(col("conclusion_events.event_cid")),
+                    col("conclusion_events.event_cid_partition").eq(col("ecp")),
+                    col("conclusion_events.event_cid")
+                        .eq(table_col(EVENT_STATES_TABLE, "event_cid")),
                 ],
             )
-            .context("join dupes")?
-            .select(vec![
-                table_col(EVENT_STATES_TABLE, "conclusion_event_order"),
-                table_col(EVENT_STATES_TABLE, "stream_cid"),
-                table_col(EVENT_STATES_TABLE, "stream_type"),
-                table_col(EVENT_STATES_TABLE, "controller"),
-                table_col(EVENT_STATES_TABLE, "dimensions"),
-                table_col(EVENT_STATES_TABLE, "event_cid"),
-                table_col(EVENT_STATES_TABLE, "event_type"),
-                table_col(EVENT_STATES_TABLE, "data"),
-                table_col(EVENT_STATES_TABLE, "event_cid_partition"),
-                table_col(EVENT_STATES_TABLE, "before"),
-                table_col(EVENT_STATES_TABLE, "chain_id"),
-                col("previous"),
-            ])
-            .context("dedupe conclusion events")?
-            .alias("dupes")?;
+            .context("anti join")?;
+
+        let after = conclusion_events.clone().count().await?;
+        tracing::info!(before, after, "anti join");
 
         let conclusion_events = conclusion_events
             .join_on(
@@ -528,69 +514,14 @@ impl Aggregator {
                 col("conclusion_events.event_cid").alias("event_cid"),
                 col("conclusion_events.event_type").alias("event_type"),
                 col("conclusion_events.data").alias("data"),
-                col("event_cid_partition"),
-                col("conclusion_events.before").alias("before"),
-                col("conclusion_events.chain_id").alias("chain_id"),
-                col("conclusion_events.previous").alias("previous"),
+                col("previous"),
                 col("previous_data"),
                 col("previous_height"),
+                col("conclusion_events.before").alias("before"),
+                col("conclusion_events.chain_id").alias("chain_id"),
+                col("event_cid_partition")
             ])
-            .context("select joined conclusion events")?
-            .alias("conclusion_events")?;
-
-        let conclusion_events = conclusion_events
-            .join_on(
-                dupes,
-                JoinType::Left,
-                vec![col("conclusion_events.event_cid").eq(col("dupes.event_cid"))],
-            )
-            .context("join dupes to conclusion events")?
-            .select(vec![
-                coalesce(vec![
-                    col("dupes.conclusion_event_order"),
-                    col("conclusion_events.conclusion_event_order"),
-                ])
-                .alias("conclusion_event_order"),
-                coalesce(vec![
-                    col("dupes.stream_cid"),
-                    col("conclusion_events.stream_cid"),
-                ])
-                .alias("stream_cid"),
-                coalesce(vec![
-                    col("dupes.stream_type"),
-                    col("conclusion_events.stream_type"),
-                ])
-                .alias("stream_type"),
-                coalesce(vec![
-                    col("dupes.controller"),
-                    col("conclusion_events.controller"),
-                ])
-                .alias("controller"),
-                coalesce(vec![
-                    col("dupes.dimensions"),
-                    col("conclusion_events.dimensions"),
-                ])
-                .alias("dimensions"),
-                col("conclusion_events.event_cid"),
-                coalesce(vec![
-                    col("dupes.event_type"),
-                    col("conclusion_events.event_type"),
-                ])
-                .alias("event_type"),
-                coalesce(vec![col("dupes.data"), col("conclusion_events.data")]).alias("data"),
-                col("conclusion_events.event_cid_partition").alias("event_cid_partition"),
-                coalesce(vec![col("dupes.before"), col("conclusion_events.before")])
-                    .alias("before"),
-                coalesce(vec![
-                    col("dupes.chain_id"),
-                    col("conclusion_events.chain_id"),
-                ])
-                .alias("chain_id"),
-                col("conclusion_events.previous").alias("previous"),
-                col("conclusion_events.previous_data").alias("previous_data"),
-                col("conclusion_events.previous_height").alias("previous_height"),
-            ])
-            .context("final conclusion select")?;
+            .context("select joined conclusion events")?;
 
         Ok(conclusion_events)
     }
