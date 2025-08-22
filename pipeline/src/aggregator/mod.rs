@@ -285,10 +285,17 @@ impl Aggregator {
             .cache()
             .await
             .context("caching events joined with previous states")?;
+
+        // let cnt_dup = events_with_previous
+        //     .clone()
+        //     .filter(col("is_duped").eq(lit(true)))?
+        //     .count()
+        //     .await?;
+        // tracing::debug!(%cnt_dup, "found {} duped events", cnt_dup);
         // NOTE: Cloning a cached data frame is cheap as the data itself is not cloned.
-        let models = events_with_previous
-            .clone()
-            .filter(col("stream_type").eq(lit(StreamIdType::Model as u8)))?;
+        let models = events_with_previous.clone().filter(
+            col("stream_type").eq(lit(StreamIdType::Model as u8)), // .and(col("is_duped").eq(lit(false))),
+        )?;
         // Completely process models first for the case when mids may reference a newly
         // created/updated model.
         let models = self.patch_models(models).await.context("patching models")?;
@@ -519,7 +526,7 @@ impl Aggregator {
                 col("previous_height"),
                 col("conclusion_events.before").alias("before"),
                 col("conclusion_events.chain_id").alias("chain_id"),
-                col("event_cid_partition")
+                col("event_cid_partition"),
             ])
             .context("select joined conclusion events")?;
 
@@ -848,26 +855,26 @@ impl Aggregator {
 
     async fn flush_cache(&self) -> Result<usize> {
         let cnt = self.count_cache().await?;
-            self.ctx
-                .table(EVENT_STATES_MEM_TABLE)
-                .await?
-                .write_table(
-                    EVENT_STATES_PERSISTENT_TABLE,
-                    DataFrameWriteOptions::new()
-                        .with_partition_by(vec!["event_cid_partition".to_owned()]),
-                )
-                .await
-                .context("writing to persistent table")?;
-            // Clear all data in the memory batch, by writing an empty batch
-            self.ctx
-                .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))
-                .context("reading empty batch")?
-                .write_table(
-                    EVENT_STATES_MEM_TABLE,
-                    DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
-                )
-                .await
-                .context("clearing mem table")?;
+        self.ctx
+            .table(EVENT_STATES_MEM_TABLE)
+            .await?
+            .write_table(
+                EVENT_STATES_PERSISTENT_TABLE,
+                DataFrameWriteOptions::new()
+                    .with_partition_by(vec!["event_cid_partition".to_owned()]),
+            )
+            .await
+            .context("writing to persistent table")?;
+        // Clear all data in the memory batch, by writing an empty batch
+        self.ctx
+            .read_batch(RecordBatch::new_empty(schemas::event_states_partitioned()))
+            .context("reading empty batch")?
+            .write_table(
+                EVENT_STATES_MEM_TABLE,
+                DataFrameWriteOptions::new().with_insert_operation(InsertOp::Overwrite),
+            )
+            .await
+            .context("clearing mem table")?;
         Ok(cnt)
     }
 }
@@ -938,18 +945,18 @@ impl ActorShutdown for Aggregator {
         info!("Aggregator shutdown: flushing cached data to persistent storage...");
 
         // Flush cache to persistent storage (same logic as threshold-based flush)
-        match self.flush_cache().await {
-            Ok(rows) => {
-                debug!(
-                    "Aggregator shutdown: successfully flushed {} rows to persistent storage",
-                    rows
-                );
-                        // Note: We skip clearing the memory cache during shutdown since the aggregator is terminating
-                    }
-                    Err(e) => {
-                        error!("Aggregator shutdown: failed to flush cached data: {}", e);
-            }
-        }
+        // match self.flush_cache().await {
+        //     Ok(rows) => {
+        //         debug!(
+        //             "Aggregator shutdown: successfully flushed {} rows to persistent storage",
+        //             rows
+        //         );
+        //         // Note: We skip clearing the memory cache during shutdown since the aggregator is terminating
+        //     }
+        //     Err(e) => {
+        //         error!("Aggregator shutdown: failed to flush cached data: {}", e);
+        //     }
+        // }
     }
 }
 

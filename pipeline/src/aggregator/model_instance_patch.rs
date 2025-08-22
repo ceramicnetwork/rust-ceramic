@@ -219,6 +219,9 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                     } else {
                         let patch = patches.value(i);
                         resolved_patches.append_value(patch);
+                        if patch.is_empty() || previous_state.is_empty() {
+                            tracing::warn!(event_cid=?Cid::read_bytes(event_cids.value(i)), state_empty=%previous_state.is_empty(), "empty patch or state");
+                        }
                         match Self::apply_patch(patch, previous_state) {
                             Ok((data, model_version)) => {
                                 new_states.append_value(data);
