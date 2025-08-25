@@ -192,7 +192,7 @@ impl SqlitePool {
 
     /// Begin a transaction. The transaction must be committed by calling `commit_tx`.
     /// Will be rolled back on drop if not committed.
-    pub async fn begin_tx(&self) -> Result<SqliteTransaction> {
+    pub async fn begin_tx(&self) -> Result<SqliteTransaction<'_>> {
         let tx = self.writer.begin().await?;
         Ok(SqliteTransaction { tx })
     }

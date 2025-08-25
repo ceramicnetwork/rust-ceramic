@@ -57,7 +57,7 @@ impl MerkleNodes {
     }
 
     /// Return an iterator over the MerkleNodes
-    pub fn iter(&self) -> indexmap::map::Iter<Cid, MerkleNode> {
+    pub fn iter(&self) -> indexmap::map::Iter<'_, Cid, MerkleNode> {
         self.nodes.iter()
     }
 
