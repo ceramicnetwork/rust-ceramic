@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc};
 
 use arrow::{
     array::{Array as _, ArrayRef, BinaryBuilder, StructArray, UInt32Builder},
@@ -167,6 +167,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
     // Input data must have the following columns:
     //     * event_cid - unique id of the event
     //     * previous_cid - id of the previous event, nullable implies an init event.
+    //     * previous_height - height of the previous event
     //     * previous_state - state of the previous event, nullable implies that the previous event
     //         exists in the current dataset.
     //     * patch - json patch to apply
@@ -181,12 +182,39 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
         let mut new_heights = UInt32Builder::new();
         // We need to keep the patch around for validation.
         let mut resolved_patches = BinaryBuilder::new();
+        let my_cid = Cid::from_str("bagcqceratk2exqmmk4dtuwxjj5zbs5yc2fjcdjqkwyjnfmlhiufgunfrduoq")
+            .unwrap()
+            .to_bytes();
+        let log_it_all = event_cids.iter().any(|c| c == Some(&my_cid));
+        if log_it_all {
+            let i = 0;
+            let previous_cid = previous_cids.value(i);
+            let previous_height = previous_heights.value(i);
+            let previous_state = previous_states.value(i);
+            let patch = patches.value(i);
+            tracing::warn!(
+                ?num_rows,
+                len = values.len(),
+                ?previous_cid,
+                ?previous_height,
+                ?previous_state,
+                ?patch,
+                "Found my cid in batch",
+            );
+        }
+
         for i in 0..num_rows {
             if previous_cids.is_valid(i) {
                 if let Some((previous_state, previous_height)) = if previous_states.is_valid(i) {
                     // We know the previous state already
+                    if log_it_all {
+                        tracing::info!("valid known")
+                    }
                     Some((previous_states.value(i), previous_heights.value(i)))
                 } else {
+                    if log_it_all {
+                        tracing::info!(i, "looping backward")
+                    }
                     // Iterator backwards till we find the previous state among the new states.
                     let previous_cid = previous_cids.value(i);
                     let mut j = i;
@@ -205,6 +233,9 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 } {
                     new_heights.append_value(previous_height + 1);
                     if patches.is_null(i) {
+                        if log_it_all {
+                            tracing::info!(i, "time event")
+                        }
                         // We have a time event, new state is just the previous state
                         model_versions.append_option(
                             Self::parse_model_version(previous_state)?.map(|mv| mv.to_bytes()),
@@ -217,6 +248,9 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         #[allow(clippy::unnecessary_to_owned)]
                         new_states.append_value(previous_state.to_owned());
                     } else {
+                        if log_it_all {
+                            tracing::info!(i, %previous_height, "applying patch")
+                        }
                         let patch = patches.value(i);
                         resolved_patches.append_value(patch);
                         if patch.is_empty() || previous_state.is_empty() {
@@ -236,6 +270,9 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                         };
                     }
                 } else {
+                    if log_it_all {
+                        tracing::info!(i, "null previous state (unreachable)")
+                    }
                     // Unreachable when data is well formed.
                     // Appending null means well formed documents can continue to be aggregated.
                     new_states.append_null();
@@ -247,11 +284,17 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                 //Init event, patch value is the initial state
                 new_heights.append_value(0);
                 if patches.is_null(i) {
+                    if log_it_all {
+                        tracing::info!(i, "init event without data")
+                    }
                     // We have an init event without data
                     new_states.append_null();
                     model_versions.append_null();
                     resolved_patches.append_null();
                 } else {
+                    if log_it_all {
+                        tracing::info!(i, "init event")
+                    }
                     let data = patches.value(i);
                     new_states.append_value(data);
                     model_versions

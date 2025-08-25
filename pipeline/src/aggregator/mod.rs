@@ -21,6 +21,7 @@ pub use validation::{ModelAccountRelationV2, ModelDefinition};
 
 use std::{
     collections::{BTreeMap, HashMap},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -59,7 +60,7 @@ use datafusion::{
         WindowFunctionDefinition, UNNAMED_TABLE,
     },
     physical_plan::stream::RecordBatchStreamAdapter,
-    prelude::{array_empty, cast, coalesce, when, wildcard, DataFrame},
+    prelude::{array_empty, cast, when, wildcard, DataFrame},
     sql::TableReference,
 };
 use futures::{StreamExt as _, TryStreamExt as _};
@@ -227,7 +228,12 @@ impl Aggregator {
         });
 
         // replay events in case of a bad shutdown / failure to flush cache to disk
-        let max_conclusion_event_order = max_conclusion_event_order.min(max_event_state_order);
+        tracing::debug!(
+            max_conclusion_event_order,
+            max_event_state_order,
+            "max_event_state_order but resetting conclusion order to None"
+        );
+        // let max_conclusion_event_order = None;
 
         // Spawn actor
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
@@ -314,8 +320,20 @@ impl Aggregator {
             .filter(col("model_definition").is_null())?
             .drop_columns(&["model_definition"])?;
 
+        let weird_order_event = events_with_previous
+            .clone()
+            .filter(col("conclusion_event_order").eq(lit(8211)))?
+            .count()
+            .await?;
+
         let mids = events_with_previous
             .filter(col("stream_type").eq(lit(StreamIdType::ModelInstanceDocument as u8)))?;
+        let weird_order_event_mids = mids
+            .clone()
+            .filter(col("conclusion_event_order").eq(lit(8211)))?
+            .count()
+            .await?;
+        tracing::warn!(%weird_order_event_mids, %weird_order_event, "weird order events");
         let mids = self
             .patch_model_instances(mids)
             .await
@@ -462,6 +480,49 @@ impl Aggregator {
             .with_column_renamed("data", "previous_data")?
             .with_column_renamed("event_height", "previous_height")?;
 
+        let low_cid =
+            Cid::from_str("bagcqceratk2exqmmk4dtuwxjj5zbs5yc2fjcdjqkwyjnfmlhiufgunfrduoq")
+                .unwrap()
+                .to_bytes();
+
+        let found_low_cid = event_states
+            .clone()
+            .filter(col("event_cid").eq(lit(low_cid.clone())))?
+            .count()
+            .await?;
+
+        let empty_str = event_states
+            .clone()
+            .filter(col("previous_data").eq(lit("")))?
+            .count()
+            .await?;
+        let empty = event_states
+            .clone()
+            .filter(col("previous_data").eq(lit(vec![])))?
+            .count()
+            .await?;
+        let null = event_states
+            .clone()
+            .filter(col("previous_data").is_null())?
+            .count()
+            .await?;
+        let cid = Cid::from_str("bagcqcerab7mp5vyfu7xdmk2tvuvo4gf7qufiivjnhxzd2d2uyv2b6hayixha")
+            .unwrap()
+            .to_bytes();
+        let going_missing = event_states
+            .clone()
+            .filter(col("event_cid").eq(lit(cid.clone())))?
+            .count()
+            .await?;
+        tracing::info!(
+            found_low_cid,
+            empty,
+            null,
+            empty_str,
+            going_missing,
+            "event_states with empty previous_data"
+        );
+
         let conclusion_events = conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
             // first element of the previous array.
@@ -484,6 +545,23 @@ impl Aggregator {
             .context("selecting conclusion events")?
             .alias("conclusion_events")?;
 
+        let going_missing = conclusion_events
+            .clone()
+            .filter(col("event_cid").eq(lit(cid.clone())))?
+            .count()
+            .await?;
+
+        let found_low_cid = conclusion_events
+            .clone()
+            .filter(col("event_cid").eq(lit(low_cid.clone())))?
+            .count()
+            .await?;
+        let weird_order_event = conclusion_events
+            .clone()
+            .filter(col("conclusion_event_order").eq(lit(8211)))?
+            .count()
+            .await?;
+
         let before = conclusion_events.clone().count().await?;
 
         // remove events we've already seen
@@ -500,7 +578,14 @@ impl Aggregator {
             .context("anti join")?;
 
         let after = conclusion_events.clone().count().await?;
-        tracing::info!(before, after, "anti join");
+        tracing::info!(
+            going_missing,
+            before,
+            after,
+            found_low_cid,
+            weird_order_event,
+            "anti join"
+        );
 
         let conclusion_events = conclusion_events
             .join_on(
@@ -529,6 +614,46 @@ impl Aggregator {
                 col("event_cid_partition"),
             ])
             .context("select joined conclusion events")?;
+
+        let going_missing = conclusion_events
+            .clone()
+            .filter(col("event_cid").eq(lit(cid)))?
+            .count()
+            .await?;
+        let weird_order_event = conclusion_events
+            .clone()
+            .filter(col("conclusion_event_order").eq(lit(8211)))?
+            .count()
+            .await?;
+        let found_low_cid = conclusion_events
+            .clone()
+            .filter(col("event_cid").eq(lit(low_cid)))?
+            .count()
+            .await?;
+        let empty_str = conclusion_events
+            .clone()
+            .filter(col("previous_data").eq(lit("")))?
+            .count()
+            .await?;
+        let empty = conclusion_events
+            .clone()
+            .filter(col("previous_data").eq(lit(vec![])))?
+            .count()
+            .await?;
+        let null = conclusion_events
+            .clone()
+            .filter(col("previous_data").is_null())?
+            .count()
+            .await?;
+        tracing::info!(
+            going_missing,
+            empty,
+            null,
+            empty_str,
+            found_low_cid,
+            weird_order_event,
+            "conclusion_events with empty previous_data"
+        );
 
         Ok(conclusion_events)
     }
@@ -837,6 +962,8 @@ impl Aggregator {
             .context("writing to mem table data")?;
 
         let count = self.count_cache().await?;
+        let ord_cnt = ordered.clone().count().await?;
+        tracing::debug!(ordered = ord_cnt, count, "Wrote events to memory table",);
         // If we have enough data cached in memory write it out to persistent store
         if count >= self.max_cached_rows {
             self.flush_cache().await?;
@@ -845,16 +972,132 @@ impl Aggregator {
     }
 
     async fn count_cache(&self) -> Result<usize> {
-        self.ctx
-            .table(EVENT_STATES_MEM_TABLE)
-            .await?
+        let pending = self.ctx.table(PENDING_EVENT_STATES_TABLE).await?;
+        let mem = self.ctx.table(EVENT_STATES_MEM_TABLE).await?;
+
+        let low_cid =
+            Cid::from_str("bagcqceratk2exqmmk4dtuwxjj5zbs5yc2fjcdjqkwyjnfmlhiufgunfrduoq")
+                .unwrap()
+                .to_bytes();
+        let found_low_cid = mem
+            .clone()
+            .filter(col("event_cid").eq(lit(low_cid)))?
             .count()
+            .await?;
+        tracing::info!(found_low_cid, "found low cid in mem table");
+
+        let batches = mem
+            .clone()
+            .aggregate(
+                vec![],
+                vec![
+                    datafusion::functions_aggregate::min_max::max(col("conclusion_event_order"))
+                        .alias("max_conclusion_event_order"),
+                    datafusion::functions_aggregate::min_max::min(col("conclusion_event_order"))
+                        .alias("min_conclusion_event_order"),
+                    datafusion::functions_aggregate::min_max::max(col("event_state_order"))
+                        .alias("max_event_state_order"),
+                    datafusion::functions_aggregate::min_max::min(col("event_state_order"))
+                        .alias("min_event_state_order"),
+                ],
+            )
+            .context("aggregating mem table")?
+            .collect()
             .await
-            .context("count mem table")
+            .context("collecting mem table")?;
+        let max_conclusion_event_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("max_conclusion_event_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let min_conclusion_event_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("min_conclusion_event_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let max_event_state_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("max_event_state_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let min_event_state_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("min_event_state_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let mem_cnt = mem.count().await.context("count mem table")?;
+        tracing::info!(
+            max_conclusion_event_order,
+            min_conclusion_event_order,
+            max_event_state_order,
+            min_event_state_order,
+            mem_cnt,
+            will_flush = %mem_cnt >= self.max_cached_rows,
+            "mem event states count info"
+        );
+
+        let batches = pending
+            .clone()
+            .aggregate(
+                vec![],
+                vec![
+                    datafusion::functions_aggregate::min_max::max(col("conclusion_event_order"))
+                        .alias("max_conclusion_event_order"),
+                    datafusion::functions_aggregate::min_max::min(col("conclusion_event_order"))
+                        .alias("min_conclusion_event_order"),
+                ],
+            )
+            .context("aggregating mem table")?
+            .collect()
+            .await
+            .context("collecting mem table")?;
+        let max_conclusion_event_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("max_conclusion_event_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let min_conclusion_event_order = batches.first().and_then(|batch| {
+            batch
+                .column_by_name("min_conclusion_event_order")
+                .and_then(|col| {
+                    as_uint64_array(&col)
+                        .ok()
+                        .and_then(|col| col.is_valid(0).then(|| col.value(0)))
+                })
+        });
+        let cnt = pending.count().await.context("count mem table")?;
+        tracing::info!(
+            max_conclusion_event_order,
+            min_conclusion_event_order,
+            cnt,
+            "pending event states count info"
+        );
+        Ok(mem_cnt)
     }
 
     async fn flush_cache(&self) -> Result<usize> {
         let cnt = self.count_cache().await?;
+        tracing::debug!(?cnt, "Starting flush_cache, current mem table count",);
         self.ctx
             .table(EVENT_STATES_MEM_TABLE)
             .await?
@@ -875,6 +1118,8 @@ impl Aggregator {
             )
             .await
             .context("clearing mem table")?;
+        let after_cnt = self.count_cache().await?;
+        tracing::debug!(after_cnt, "Finished flush_cache, current mem table count",);
         Ok(cnt)
     }
 }
@@ -943,6 +1188,8 @@ actor_envelope! {
 impl ActorShutdown for Aggregator {
     async fn shutdown(&mut self) {
         info!("Aggregator shutdown: flushing cached data to persistent storage...");
+
+        self.count_cache().await.unwrap();
 
         // Flush cache to persistent storage (same logic as threshold-based flush)
         // match self.flush_cache().await {

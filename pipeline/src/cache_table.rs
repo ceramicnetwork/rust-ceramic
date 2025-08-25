@@ -266,8 +266,12 @@ impl DataSink for CacheSink {
         let num_partitions = self.batches.len();
 
         // buffer up the data round robin style into num_partitions
-
         let mut new_batches = vec![vec![]; num_partitions];
+        tracing::debug!(
+            batches = new_batches.iter().map(|b| b.len()).sum::<usize>(),
+            num_partitions,
+            "write_all: Starting write of batches to partitions",
+        );
         let mut i = 0;
         let mut row_count = 0;
         while let Some(batch) = data.next().await.transpose()? {
@@ -281,6 +285,7 @@ impl DataSink for CacheSink {
             // Append all the new batches in one go to minimize locking overhead
             target.write().await.append(&mut batches);
         }
+        tracing::debug!(?row_count, ?num_partitions, "wrote cache");
 
         Ok(row_count as u64)
     }
