@@ -2,11 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.55.1] - 2025-06-17
+## [0.56.0] - 2025-08-28
+
+### 🚀 Features
+
+- Allow configuring daemon with extra interests ([#734](https://github.com/ceramicnetwork/rust-ceramic/issues/734))
+
+### 🐛 Bug Fixes
+
+- *(sdk)* Use correct controller during stream creation ([#724](https://github.com/ceramicnetwork/rust-ceramic/issues/724))
+- *(sdk)* Set correct unique value for mids with set relation ([#730](https://github.com/ceramicnetwork/rust-ceramic/issues/730))
+- Aggregator cache flush on shutdown ([#735](https://github.com/ceramicnetwork/rust-ceramic/issues/735))
+
+### ⚙️ Miscellaneous Tasks
+
+- *(sdk)* Version v0.11.0 ([#727](https://github.com/ceramicnetwork/rust-ceramic/issues/727))
+- *(sdk)* Version v0.12.0 ([#731](https://github.com/ceramicnetwork/rust-ceramic/issues/731))
+
+## [0.55.1] - 2025-06-18
 
 ### 🐛 Bug Fixes
 
 - Fetch unvalidated time proofs for conclusion events ([#723](https://github.com/ceramicnetwork/rust-ceramic/issues/723))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.55.1 ([#726](https://github.com/ceramicnetwork/rust-ceramic/issues/726))
 
 ## [0.55.0] - 2025-05-26
 
