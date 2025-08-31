@@ -397,7 +397,7 @@ async fn event_states_simple() -> Result<()> {
                 data::varchar as data,
                 before,
                 chain_id
-            FROM event_states LIMIT 4"#
+            FROM event_states order by event_state_order LIMIT 4"#
                 .to_string(),
             None,
         )

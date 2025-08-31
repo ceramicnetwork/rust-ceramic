@@ -229,10 +229,8 @@ impl Aggregator {
         debug!(
             ?max_conclusion_event_order,
             ?max_event_state_order,
-            "highwater marks. setting max_conclusion_event_order to None to ensure no events missed"
+            "aggregator highwater marks"
         );
-        // replay events in case of a bad shutdown / failure to flush cache to disk
-        let max_conclusion_event_order = None;
 
         // Spawn actor
         let (broadcast_tx, _broadcast_rx) = broadcast::channel(1_000);
@@ -300,7 +298,7 @@ impl Aggregator {
         let models = self.patch_models(models).await.context("patching models")?;
         let models = self.validate_models(models).context("validating models")?;
         let mut models = self
-            .store_event_states(models)
+            .store_event_states(models, false)
             .await
             .context("storing models")?;
 
@@ -431,7 +429,7 @@ impl Aggregator {
             .await
             .context("validating mids")?;
         let mut mids = self
-            .store_event_states(mids)
+            .store_event_states(mids, true)
             .await
             .context("storing mids")?;
         let mut ordered_events = Vec::with_capacity(models.len() + mids.len());
@@ -772,7 +770,11 @@ impl Aggregator {
     }
 
     #[instrument(skip_all)]
-    async fn store_event_states(&mut self, event_states: DataFrame) -> Result<Vec<RecordBatch>> {
+    async fn store_event_states(
+        &mut self,
+        event_states: DataFrame,
+        allow_cache_flush: bool,
+    ) -> Result<Vec<RecordBatch>> {
         let row_count = event_states.clone().count().await?;
         if row_count == 0 {
             return Ok(vec![RecordBatch::new_empty(
@@ -831,10 +833,14 @@ impl Aggregator {
             .await
             .context("writing to mem table data")?;
 
-        let count = self.count_cache().await?;
-        // If we have enough data cached in memory write it out to persistent store
-        if count >= self.max_cached_rows {
+        if allow_cache_flush {
             self.flush_cache().await?;
+            let count = self.count_cache().await?;
+            tracing::debug!(%count, will_flush = %count >= self.max_cached_rows, "counts for mem table");
+            // If we have enough data cached in memory write it out to persistent store
+            if count >= self.max_cached_rows {
+                self.flush_cache().await?;
+            }
         }
         ordered.collect().await.context("collecting ordered events")
     }
@@ -1022,6 +1028,7 @@ impl Handler<NewConclusionEventsMsg> for Aggregator {
         );
         let batch = self.process_conclusion_events_batch(message.events).await?;
         if batch.num_rows() > 0 {
+            tracing::trace!(event_count = %batch.num_rows(), "sending events to subscribers");
             let _ = self.broadcast_tx.send(batch);
         }
         Ok(())
@@ -2049,9 +2056,7 @@ mod tests {
                 .once()
                 .with(predicate::eq(SubscribeSinceMsg {
                     projection: None,
-                    filters: None,
-                    // TODO: need to figure out the memory table ordering bug so we can restart correctly in the future
-                    // filters: Some(vec![gt_expression("conclusion_event_order", 1)]),
+                    filters: Some(vec![gt_expression("conclusion_event_order", 1)]),
                     limit: None,
                 }))
                 .return_once(|_msg| {
