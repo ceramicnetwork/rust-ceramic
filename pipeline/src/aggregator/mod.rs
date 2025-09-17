@@ -3792,13 +3792,14 @@ mod tests {
         let mid1_events = n_mid_events(10, &model_stream_id);
         let mid2_events = n_mid_events(10, &model_stream_id);
         let mid3_events = n_mid_events(10, &model_stream_id);
-        let mut events = [model]
-            .into_iter()
-            .chain(mid1_events[0..5].iter().cloned())
+        let mut events = mid1_events[0..5]
+            .iter()
+            .cloned()
             .chain(mid2_events[0..5].iter().cloned())
             .chain(mid3_events[0..5].iter().cloned())
             .chain(mid2_events[5..].iter().cloned())
             .chain(mid1_events[5..].iter().cloned())
+            .chain([model])
             .chain(mid3_events[5..].iter().cloned())
             .collect::<Vec<_>>();
         // events must come after their previous and the order number has to incrememt globally.
@@ -3811,7 +3812,6 @@ mod tests {
                 ConclusionEvent::Time(time) => time.order = i as u64,
             });
 
-        // splice the 3 events together making sure each vec isn't reordered but not all in a row
         let events = &events;
 
         // First processing: process events normally
