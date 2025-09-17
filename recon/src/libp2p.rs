@@ -24,7 +24,7 @@ use ceramic_core::{EventId, PeerKey};
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::{
     core::ConnectedPoint,
-    swarm::{ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
+    swarm::{CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
 };
 use libp2p_identity::PeerId;
 use std::{
@@ -215,7 +215,7 @@ where
     fn on_connection_handler_event(
         &mut self,
         peer_id: libp2p_identity::PeerId,
-        _connection_id: libp2p::swarm::ConnectionId,
+        connection_id: libp2p::swarm::ConnectionId,
         event: libp2p::swarm::THandlerOutEvent<Self>,
     ) {
         let ev = match event {
@@ -229,8 +229,11 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when started synchronizing?");
-                    None
+                    tracing::warn!(%peer_id, ?connection_id, "peer not found in peers map when started synchronizing? closing connection");
+                    Some(ToSwarm::CloseConnection {
+                        peer_id,
+                        connection: CloseConnection::One(connection_id),
+                    })
                 }
             }
 
@@ -244,8 +247,11 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when stopped synchronizing?");
-                    None
+                    tracing::warn!(%peer_id, ?connection_id, "peer not found in peers map when stopped synchronizing? closing connection");
+                    Some(ToSwarm::CloseConnection {
+                        peer_id,
+                        connection: CloseConnection::One(connection_id),
+                    })
                 }
             }
 
@@ -276,8 +282,11 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when succeeded synchronizing?");
-                    None
+                    tracing::warn!(%peer_id, ?connection_id, "peer not found in peers map when succeeded synchronizing? closing connection");
+                    Some(ToSwarm::CloseConnection {
+                        peer_id,
+                        connection: CloseConnection::One(connection_id),
+                    })
                 }
             }
 
@@ -307,8 +316,11 @@ where
                         status: info.status,
                     })))
                 } else {
-                    tracing::warn!(%peer_id, "peer not found in peers map when failed synchronizing?");
-                    None
+                    tracing::warn!(%peer_id, ?connection_id, "peer not found in peers map when failed synchronizing? closing connectoin");
+                    Some(ToSwarm::CloseConnection {
+                        peer_id,
+                        connection: CloseConnection::One(connection_id),
+                    })
                 }
             }
         };
