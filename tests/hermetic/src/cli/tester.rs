@@ -786,7 +786,7 @@ fn job_volumes() -> Vec<Volume> {
 fn job_init() -> Container {
     Container {
         name: "init-tests".to_owned(),
-        image: Some("stedolan/jq".to_owned()),
+        image: Some("ghcr.io/jqlang/jq".to_owned()),
         image_pull_policy: Some("IfNotPresent".to_owned()),
         command: Some(vec![
             "/bin/bash".to_owned(),
