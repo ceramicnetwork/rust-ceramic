@@ -3,6 +3,7 @@ use ceramic_core::Jwk;
 use ceramic_event::unvalidated::signed::{self, cacao::Capability};
 use ipld_core::ipld::Ipld;
 use ssi::{did_resolve::ResolutionInputMetadata, jws::Header};
+use tracing::debug;
 
 use super::{
     cacao_verifier::Verifier as _,
@@ -146,6 +147,13 @@ async fn resolve_did_verify_delegated(issuer: &str, delegated: &str, time: &AtTi
         .as_ref()
         .is_none_or(|c| !c.any(|c| c == delegated))
     {
+        debug!(
+            ?controller_did,
+            ?issuer,
+            ?delegated,
+            ?time,
+            "Failed to validate DID delegation"
+        );
         bail!("invalid_jws: '{delegated}' not in controllers list for issuer: '{issuer}'")
     }
     Ok(())
