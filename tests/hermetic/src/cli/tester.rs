@@ -786,12 +786,12 @@ fn job_volumes() -> Vec<Volume> {
 fn job_init() -> Container {
     Container {
         name: "init-tests".to_owned(),
-        image: Some("stedolan/jq".to_owned()),
+        image: Some("alpine:latest".to_owned()),
         image_pull_policy: Some("IfNotPresent".to_owned()),
         command: Some(vec![
-            "/bin/bash".to_owned(),
+            "/bin/sh".to_owned(),
             "-c".to_owned(),
-            "/network/process-peers.sh".to_owned(),
+            "apk add --no-cache bash jq curl && /network/process-peers.sh".to_owned(),
         ]),
         env: Some(vec![
             EnvVar {

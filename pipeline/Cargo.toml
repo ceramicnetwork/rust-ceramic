@@ -52,3 +52,5 @@ url.workspace = true
 mockall.workspace = true
 test-log.workspace = true
 tracing-subscriber.workspace = true
+rand.workspace = true
+multihash-codetable.workspace = true

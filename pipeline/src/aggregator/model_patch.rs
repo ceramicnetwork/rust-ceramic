@@ -176,6 +176,7 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
                             }
                             Err(err) => {
                                 warn!(%err, event_cid=?Cid::read_bytes(event_cids.value(i)), "failed to apply patch to model event");
+                                tracing::debug!(%previous_height, %num_rows, patch=?String::from_utf8_lossy(patches.value(i)), previous_state=?String::from_utf8_lossy(previous_state), "failed to apply patch to model event");
                                 new_states.append_null();
                             }
                         };

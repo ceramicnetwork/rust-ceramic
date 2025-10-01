@@ -224,7 +224,7 @@ impl Builder<WithExpiration> {
         PeerKey(format!("{:0>11}", self.state.expiration))
     }
     /// Set the peer id. Note, a NodeKey is required so the [`PeerEntry`] can be signed.
-    pub fn with_id(self, id: &NodeKey) -> Builder<WithId> {
+    pub fn with_id(self, id: &NodeKey) -> Builder<WithId<'_>> {
         Builder {
             state: WithId {
                 node_key: id,
