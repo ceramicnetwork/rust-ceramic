@@ -791,7 +791,7 @@ fn job_init() -> Container {
         command: Some(vec![
             "/bin/sh".to_owned(),
             "-c".to_owned(),
-            "apk add --no-cache jq curl && /network/process-peers.sh".to_owned(),
+            "apk add --no-cache bash jq curl && /network/process-peers.sh".to_owned(),
         ]),
         env: Some(vec![
             EnvVar {
