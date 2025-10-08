@@ -157,12 +157,12 @@ impl PartitionEvaluator for CeramicPatchEvaluator {
     //
     // Assumption made by the function:
     //    * Window partitions are by stream_cid
-    //    * Rows are ordered by the index column
+    //    * Rows are ordered by the conclusion_event_order column
     //
     // With these assumptions the code assumes it has all events for a stream and only events from
     // a single stream.
-    // Additionally index sort order means that any event's previous event comes earlier in the
-    // data set and so a single pass algorithm can be implemented.
+    // Additionally conclusion_event_order sort order means that any event's previous event comes
+    // earlier in the data set and so a single pass algorithm can be implemented.
     //
     // Input data must have the following columns:
     //     * event_cid - unique id of the event

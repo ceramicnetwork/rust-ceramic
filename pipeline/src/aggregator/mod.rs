@@ -442,23 +442,6 @@ impl Aggregator {
     // Joins events with their previous state if any
     #[instrument(skip_all)]
     async fn join_event_states(&self, conclusion_events: DataFrame) -> Result<DataFrame> {
-        let event_states = self
-            .ctx
-            .table(EVENT_STATES_TABLE)
-            .await?
-            .select_columns(&[
-                "event_cid_partition",
-                "stream_cid",
-                "event_cid",
-                "event_height",
-                "data",
-            ])?
-            // Alias column so it does not conflict with the column from conclusion_events
-            // in the join.
-            .with_column_renamed("event_cid_partition", "ecp")?
-            .with_column_renamed("data", "previous_data")?
-            .with_column_renamed("event_height", "previous_height")?;
-
         let conclusion_events = conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
             // first element of the previous array.
@@ -482,43 +465,75 @@ impl Aggregator {
             .alias("conclusion_events")?;
 
         // remove events we've already seen
+        let known_event_states = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .select_columns(&["event_cid"])?
+            .with_column_renamed("event_cid", "seen_event_cid")?;
+
         let conclusion_events = conclusion_events
             .join_on(
-                event_states.clone(),
+                known_event_states,
                 JoinType::LeftAnti,
-                vec![
-                    col("conclusion_events.event_cid_partition").eq(col("ecp")),
-                    col("conclusion_events.event_cid")
-                        .eq(table_col(EVENT_STATES_TABLE, "event_cid")),
-                ],
+                vec![col("conclusion_events.event_cid").eq(col("seen_event_cid"))],
             )
             .context("anti join")?;
 
         // join all new conclusion_events with known history to apply patches
+        // Include both EVENT_STATES_TABLE and PENDING_EVENT_STATES_TABLE
+        // because events may reference pending events that haven't been fully processed yet
+        // but will be 'unlocked' in our batch if their model being processed as well
+        let event_states_for_previous = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .select_columns(&["event_cid_partition", "event_cid", "event_height", "data"])?
+            .union(
+                self.ctx
+                    .table(PENDING_EVENT_STATES_TABLE)
+                    .await?
+                    .select(vec![
+                        cid_part(col("event_cid")).alias("event_cid_partition"),
+                        col("event_cid"),
+                        col("event_height"),
+                        col("data"),
+                    ])?,
+            )?
+            // Alias column so it does not conflict with the column from conclusion_events
+            // in the join.
+            .with_column_renamed("event_cid_partition", "ecp")?
+            .with_column_renamed("event_cid", "previous_event_cid")?
+            .with_column_renamed("data", "previous_data")?
+            .with_column_renamed("event_height", "previous_height")?;
+
         let conclusion_events = conclusion_events
             .join_on(
-                event_states,
+                event_states_for_previous,
                 JoinType::Left,
                 [
                     col("previous_event_cid_partition").eq(col("ecp")),
-                    col("previous").eq(table_col(EVENT_STATES_TABLE, "event_cid")),
+                    col("previous").eq(col("previous_event_cid")),
                 ],
             )
             .context("setup join")?
+            .cache()
+            .await
+            .context("caching joined events")?
             .select(vec![
                 col("conclusion_event_order"),
-                col("conclusion_events.stream_cid").alias("stream_cid"),
-                col("conclusion_events.stream_type").alias("stream_type"),
-                col("conclusion_events.controller").alias("controller"),
-                col("conclusion_events.dimensions").alias("dimensions"),
-                col("conclusion_events.event_cid").alias("event_cid"),
-                col("conclusion_events.event_type").alias("event_type"),
-                col("conclusion_events.data").alias("data"),
+                col("stream_cid"),
+                col("stream_type"),
+                col("controller"),
+                col("dimensions"),
+                col("event_cid"),
+                col("event_type"),
+                col("data"),
                 col("previous"),
                 col("previous_data"),
                 col("previous_height"),
-                col("conclusion_events.before").alias("before"),
-                col("conclusion_events.chain_id").alias("chain_id"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select joined conclusion events")?;
@@ -788,7 +803,7 @@ impl Aggregator {
         let ordered = event_states
             .window(vec![row_number()
                 .order_by(vec![
-                    // Ensure that the order preserves stream order and is deterministic.
+                    // Then ensure that the order preserves stream order and is deterministic.
                     // Otherwise applications would see stream updates before seeing their previous
                     // state.
                     // External to this function we ensure that a model comes befores its
@@ -3650,8 +3665,8 @@ mod tests {
             result
         };
 
-        println!("first_result: {}", first_result.to_string());
-        println!("second_result: {}", second_result.to_string());
+        println!("first_result: {}", first_result);
+        println!("second_result: {}", second_result);
 
         expect![[r#"
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
