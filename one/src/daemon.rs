@@ -4,7 +4,7 @@ use crate::{
     default_directory, handle_signals, http, http_metrics, metrics, network::Ipfs, startup, DBOpts,
     DBOptsExperimental, Info, LogOpts, Network,
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeKey;
@@ -457,7 +457,9 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
     };
     debug!(?p2p_config, "using p2p config");
 
-    let node_key = NodeKey::try_from_dir(opts.p2p_key_dir).await?;
+    let node_key = NodeKey::try_from_dir(opts.p2p_key_dir)
+        .await
+        .context("missing p2p dir")?;
     let node_id = node_key.id();
 
     // Process initial interests if provided

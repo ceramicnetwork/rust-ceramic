@@ -268,7 +268,7 @@ mod test {
                     root_cid,
                     block_hash: "0x0".to_string(),
                     metadata: ChainProofMetadata {
-                        chain_id: chain_id,
+                        chain_id,
                         tx_hash: "0x0".to_string(),
                         tx_input: "0x0".to_string(),
                     },
