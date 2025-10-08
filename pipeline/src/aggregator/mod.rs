@@ -3735,13 +3735,11 @@ mod tests {
         )
     }
 
-    /// WARNING: the order used here MUST BE GLOBAL for your events, so if you call this multiple times
+    /// WARNING:  
+    ///     - the order used here MUST BE GLOBAL for your events, so if you call this multiple times
     /// you must correct the order manually.
+    ///     - the event CID and unique values are random, so they are not stable across test runs
     fn n_mid_events(to_add: u64, model_stream_id: &StreamId) -> Vec<ConclusionEvent> {
-        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
-        // This makes testing easier as changing the contents does not mean you need to update all of
-        // the cids.
-
         let unique = random_cid().to_bytes();
         let instance_stream_id = StreamId::document(random_cid());
         let stream_init = ConclusionInit {
@@ -3876,5 +3874,81 @@ mod tests {
         assert_eq!(res, res3);
         assert!(!res.contains("cannot validate"));
         assert!(!res2.contains("cannot validate"));
+    }
+
+    async fn batched_test(
+        batch1: &[ConclusionEvent],
+        batch2: &[ConclusionEvent],
+    ) -> Vec<RecordBatch> {
+        let ctx = init_with_cache(Some(7)).await.unwrap();
+
+        let mut subscription = ctx
+            .actor_handle
+            .send(SubscribeSinceMsg {
+                projection: None,
+                filters: None,
+                limit: None,
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        ctx.actor_handle
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(batch1).unwrap(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        ctx.actor_handle
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(batch2).unwrap(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let results = subscription.try_next().await.unwrap().unwrap();
+
+        ctx.shutdown().await.unwrap();
+        vec![results]
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn pending_model_batching() {
+        let (model_stream_id, model) = test_model();
+        let mid1_events = n_mid_events(10, &model_stream_id);
+        let mid2_events = n_mid_events(10, &model_stream_id);
+        let mut events = mid1_events[0..1]
+            .iter()
+            .cloned()
+            .chain(mid2_events.iter().cloned())
+            .chain([model])
+            .chain(mid1_events[1..].iter().cloned())
+            .collect::<Vec<_>>();
+        // events must come after their previous and the order number has to incrememt globally.
+        // we ensured condition 1, now we rewrite the order
+        events
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, event)| match event {
+                ConclusionEvent::Data(data) => data.order = i as u64,
+                ConclusionEvent::Time(time) => time.order = i as u64,
+            });
+
+        let batch1 = &events[0..10].to_vec();
+        let batch2 = &events[10..].to_vec();
+
+        // First processing: process events normally
+        let results = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            batched_test(batch1, batch2),
+        )
+        .await
+        .unwrap();
+        let res = pretty_event_states(results).await.unwrap();
+
+        assert!(!res.to_string().contains("null instance"), "{res}");
     }
 }
