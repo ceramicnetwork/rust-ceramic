@@ -465,18 +465,23 @@ impl Aggregator {
             .alias("conclusion_events")?;
 
         // remove events we've already seen
-        let known_event_states = self
+        let known_event_cids = self
             .ctx
             .table(EVENT_STATES_TABLE)
             .await?
-            .select_columns(&["event_cid"])?
-            .with_column_renamed("event_cid", "seen_event_cid")?;
+            .select_columns(&["event_cid_partition", "event_cid"])?
+            .with_column_renamed("event_cid_partition", "known_event_cid_partition")?
+            .with_column_renamed("event_cid", "known_event_cid")?;
 
         let conclusion_events = conclusion_events
             .join_on(
-                known_event_states,
+                known_event_cids,
                 JoinType::LeftAnti,
-                vec![col("conclusion_events.event_cid").eq(col("seen_event_cid"))],
+                vec![
+                    col("conclusion_events.event_cid_partition")
+                        .eq(col("known_event_cid_partition")),
+                    col("conclusion_events.event_cid").eq(col("known_event_cid")),
+                ],
             )
             .context("anti join")?;
 
@@ -502,7 +507,7 @@ impl Aggregator {
             )?
             // Alias column so it does not conflict with the column from conclusion_events
             // in the join.
-            .with_column_renamed("event_cid_partition", "ecp")?
+            .with_column_renamed("event_cid_partition", "previous_ecp")?
             .with_column_renamed("event_cid", "previous_event_cid")?
             .with_column_renamed("data", "previous_data")?
             .with_column_renamed("event_height", "previous_height")?;
@@ -512,7 +517,7 @@ impl Aggregator {
                 event_states_for_previous,
                 JoinType::Left,
                 [
-                    col("previous_event_cid_partition").eq(col("ecp")),
+                    col("previous_event_cid_partition").eq(col("previous_ecp")),
                     col("previous").eq(col("previous_event_cid")),
                 ],
             )
@@ -3920,6 +3925,11 @@ mod tests {
         let (model_stream_id, model) = test_model();
         let mid1_events = n_mid_events(10, &model_stream_id);
         let mid2_events = n_mid_events(10, &model_stream_id);
+        // This order is important! The model must come in a batch AFTER a MID init event that requires it with MORE events from the stream.
+        // Batch 1: init, batch 2: model, patch
+        // This forces the init to be pended waiting for the model, so when it arrives the init will be unpended and aggregated.
+        // The incoming event will then be aggregated to the stream, correctly understanding the state of the init event.
+        // Previously, the would miss the history and result in a validation error.
         let mut events = mid1_events[0..1]
             .iter()
             .cloned()
