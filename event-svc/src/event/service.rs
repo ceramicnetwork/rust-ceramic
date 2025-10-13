@@ -579,7 +579,7 @@ impl EventService {
 
         let proof = ChainProof::from(proof);
         self.event_access
-            .persist_chain_inclusion_proofs(&[proof.clone()])
+            .persist_chain_inclusion_proofs(std::slice::from_ref(&proof))
             .await
             .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
 

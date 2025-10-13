@@ -442,23 +442,6 @@ impl Aggregator {
     // Joins events with their previous state if any
     #[instrument(skip_all)]
     async fn join_event_states(&self, conclusion_events: DataFrame) -> Result<DataFrame> {
-        let event_states = self
-            .ctx
-            .table(EVENT_STATES_TABLE)
-            .await?
-            .select_columns(&[
-                "event_cid_partition",
-                "stream_cid",
-                "event_cid",
-                "event_height",
-                "data",
-            ])?
-            // Alias column so it does not conflict with the column from conclusion_events
-            // in the join.
-            .with_column_renamed("event_cid_partition", "ecp")?
-            .with_column_renamed("data", "previous_data")?
-            .with_column_renamed("event_height", "previous_height")?;
-
         let conclusion_events = conclusion_events
             // MID only ever use the first previous, so we can optimize the join by selecting the
             // first element of the previous array.
@@ -482,43 +465,80 @@ impl Aggregator {
             .alias("conclusion_events")?;
 
         // remove events we've already seen
+        let known_event_cids = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .select_columns(&["event_cid_partition", "event_cid"])?
+            .with_column_renamed("event_cid_partition", "known_event_cid_partition")?
+            .with_column_renamed("event_cid", "known_event_cid")?;
+
         let conclusion_events = conclusion_events
             .join_on(
-                event_states.clone(),
+                known_event_cids,
                 JoinType::LeftAnti,
                 vec![
-                    col("conclusion_events.event_cid_partition").eq(col("ecp")),
-                    col("conclusion_events.event_cid")
-                        .eq(table_col(EVENT_STATES_TABLE, "event_cid")),
+                    col("conclusion_events.event_cid_partition")
+                        .eq(col("known_event_cid_partition")),
+                    col("conclusion_events.event_cid").eq(col("known_event_cid")),
                 ],
             )
             .context("anti join")?;
 
         // join all new conclusion_events with known history to apply patches
+        // Include both EVENT_STATES_TABLE and PENDING_EVENT_STATES_TABLE
+        // because events may reference pending events that haven't been fully processed yet
+        // but will be 'unlocked' in our batch if their model being processed as well
+        let event_states_for_previous = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await?
+            .select_columns(&["event_cid_partition", "event_cid", "event_height", "data"])?
+            .union(
+                self.ctx
+                    .table(PENDING_EVENT_STATES_TABLE)
+                    .await?
+                    .select(vec![
+                        cid_part(col("event_cid")).alias("event_cid_partition"),
+                        col("event_cid"),
+                        col("event_height"),
+                        col("data"),
+                    ])?,
+            )?
+            // Alias column so it does not conflict with the column from conclusion_events
+            // in the join.
+            .with_column_renamed("event_cid_partition", "previous_ecp")?
+            .with_column_renamed("event_cid", "previous_event_cid")?
+            .with_column_renamed("data", "previous_data")?
+            .with_column_renamed("event_height", "previous_height")?;
+
         let conclusion_events = conclusion_events
             .join_on(
-                event_states,
+                event_states_for_previous,
                 JoinType::Left,
                 [
-                    col("previous_event_cid_partition").eq(col("ecp")),
-                    col("previous").eq(table_col(EVENT_STATES_TABLE, "event_cid")),
+                    col("previous_event_cid_partition").eq(col("previous_ecp")),
+                    col("previous").eq(col("previous_event_cid")),
                 ],
             )
             .context("setup join")?
+            .cache()
+            .await
+            .context("caching joined events")?
             .select(vec![
                 col("conclusion_event_order"),
-                col("conclusion_events.stream_cid").alias("stream_cid"),
-                col("conclusion_events.stream_type").alias("stream_type"),
-                col("conclusion_events.controller").alias("controller"),
-                col("conclusion_events.dimensions").alias("dimensions"),
-                col("conclusion_events.event_cid").alias("event_cid"),
-                col("conclusion_events.event_type").alias("event_type"),
-                col("conclusion_events.data").alias("data"),
+                col("stream_cid"),
+                col("stream_type"),
+                col("controller"),
+                col("dimensions"),
+                col("event_cid"),
+                col("event_type"),
+                col("data"),
                 col("previous"),
                 col("previous_data"),
                 col("previous_height"),
-                col("conclusion_events.before").alias("before"),
-                col("conclusion_events.chain_id").alias("chain_id"),
+                col("before"),
+                col("chain_id"),
                 col("event_cid_partition"),
             ])
             .context("select joined conclusion events")?;
@@ -788,7 +808,7 @@ impl Aggregator {
         let ordered = event_states
             .window(vec![row_number()
                 .order_by(vec![
-                    // Ensure that the order preserves stream order and is deterministic.
+                    // Then ensure that the order preserves stream order and is deterministic.
                     // Otherwise applications would see stream updates before seeing their previous
                     // state.
                     // External to this function we ensure that a model comes befores its
@@ -3650,8 +3670,8 @@ mod tests {
             result
         };
 
-        println!("first_result: {}", first_result.to_string());
-        println!("second_result: {}", second_result.to_string());
+        println!("first_result: {}", first_result);
+        println!("second_result: {}", second_result);
 
         expect![[r#"
             +-------------------+-------------------------------------------------------------+-------------+---------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------+---------------+------------+
@@ -3720,13 +3740,11 @@ mod tests {
         )
     }
 
-    /// WARNING: the order used here MUST BE GLOBAL for your events, so if you call this multiple times
+    /// WARNING:  
+    ///     - the order used here MUST BE GLOBAL for your events, so if you call this multiple times
     /// you must correct the order manually.
+    ///     - the event CID and unique values are random, so they are not stable across test runs
     fn n_mid_events(to_add: u64, model_stream_id: &StreamId) -> Vec<ConclusionEvent> {
-        // NOTE: These CIDs and StreamIDs are fake and do not represent the actual hash of the data.
-        // This makes testing easier as changing the contents does not mean you need to update all of
-        // the cids.
-
         let unique = random_cid().to_bytes();
         let instance_stream_id = StreamId::document(random_cid());
         let stream_init = ConclusionInit {
@@ -3861,5 +3879,86 @@ mod tests {
         assert_eq!(res, res3);
         assert!(!res.contains("cannot validate"));
         assert!(!res2.contains("cannot validate"));
+    }
+
+    async fn batched_test(
+        batch1: &[ConclusionEvent],
+        batch2: &[ConclusionEvent],
+    ) -> Vec<RecordBatch> {
+        let ctx = init_with_cache(Some(7)).await.unwrap();
+
+        let mut subscription = ctx
+            .actor_handle
+            .send(SubscribeSinceMsg {
+                projection: None,
+                filters: None,
+                limit: None,
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        ctx.actor_handle
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(batch1).unwrap(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        ctx.actor_handle
+            .send(NewConclusionEventsMsg {
+                events: conclusion_events_to_record_batch(batch2).unwrap(),
+            })
+            .await
+            .unwrap()
+            .unwrap();
+
+        let results = subscription.try_next().await.unwrap().unwrap();
+
+        ctx.shutdown().await.unwrap();
+        vec![results]
+    }
+
+    #[test_log::test(tokio::test)]
+    async fn pending_model_batching() {
+        let (model_stream_id, model) = test_model();
+        let mid1_events = n_mid_events(10, &model_stream_id);
+        let mid2_events = n_mid_events(10, &model_stream_id);
+        // This order is important! The model must come in a batch AFTER a MID init event that requires it with MORE events from the stream.
+        // Batch 1: init, batch 2: model, patch
+        // This forces the init to be pended waiting for the model, so when it arrives the init will be unpended and aggregated.
+        // The incoming event will then be aggregated to the stream, correctly understanding the state of the init event.
+        // Previously, the would miss the history and result in a validation error.
+        let mut events = mid1_events[0..1]
+            .iter()
+            .cloned()
+            .chain(mid2_events.iter().cloned())
+            .chain([model])
+            .chain(mid1_events[1..].iter().cloned())
+            .collect::<Vec<_>>();
+        // events must come after their previous and the order number has to incrememt globally.
+        // we ensured condition 1, now we rewrite the order
+        events
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, event)| match event {
+                ConclusionEvent::Data(data) => data.order = i as u64,
+                ConclusionEvent::Time(time) => time.order = i as u64,
+            });
+
+        let batch1 = &events[0..10].to_vec();
+        let batch2 = &events[10..].to_vec();
+
+        // First processing: process events normally
+        let results = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            batched_test(batch1, batch2),
+        )
+        .await
+        .unwrap();
+        let res = pretty_event_states(results).await.unwrap();
+
+        assert!(!res.to_string().contains("null instance"), "{res}");
     }
 }
