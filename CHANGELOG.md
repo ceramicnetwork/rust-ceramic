@@ -2,12 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.56.2] - 2025-10-13
+
+### 🐛 Bug Fixes
+
+- Aggregator errors when events in pending and incoming batch ([#741](https://github.com/ceramicnetwork/rust-ceramic/issues/741))
+
 ## [0.56.1] - 2025-10-01
 
 ### 🐛 Bug Fixes
 
 - Aggregator restart missing events ([#737](https://github.com/ceramicnetwork/rust-ceramic/issues/737))
 - Adjust some logging and disconnect with peer when we don't have them in our local map and something is wrong ([#739](https://github.com/ceramicnetwork/rust-ceramic/issues/739))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.56.1 ([#740](https://github.com/ceramicnetwork/rust-ceramic/issues/740))
 
 ## [0.56.0] - 2025-08-28
 
