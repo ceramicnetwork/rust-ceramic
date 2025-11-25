@@ -1,0 +1,29 @@
+[package]
+name = "ceramic-anchor-evm"
+description = "EVM blockchain anchoring service for Ceramic"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+alloy.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+ceramic-anchor-service.workspace = true
+ceramic-core.workspace = true
+ceramic-event.workspace = true
+hex.workspace = true
+multihash-codetable.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+cid.workspace = true
+expect-test.workspace = true
+test-log.workspace = true
+tracing-subscriber.workspace = true

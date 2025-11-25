@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "actor",
     "actor-macros",
+    "anchor-evm",
     "anchor-remote",
     "anchor-service",
     "api",
@@ -42,7 +43,7 @@ members = [
 #   e.g. anyhow's backtrace feature.
 
 ahash = "0.8"
-alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types"] }
+alloy = { version = "0.4", features = ["k256", "provider-http", "rpc-types", "signers", "sol-types", "signer-local", "contract"] }
 anyhow = { version = "1" }
 arrow = { version = "54", features = ["prettyprint"] }
 arrow-array = "54"
@@ -66,6 +67,7 @@ bytes = "1.1"
 bytesize = "1.1"
 ceramic-actor = { path = "./actor" }
 ceramic-actor-macros = { path = "./actor-macros" }
+ceramic-anchor-evm = { path = "./anchor-evm" }
 ceramic-anchor-service = { path = "./anchor-service" }
 ceramic-anchor-remote = { path = "./anchor-remote" }
 ceramic-api = { path = "./api" }
