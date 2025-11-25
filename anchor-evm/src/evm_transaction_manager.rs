@@ -18,7 +18,7 @@ use url::Url;
 use crate::{contract::AnchorContract, proof_builder::ProofBuilder};
 
 /// Configuration for EVM transaction manager
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EvmConfig {
     /// RPC endpoint URL for the EVM chain
     pub rpc_url: String,
@@ -226,6 +226,14 @@ impl EvmTransactionManager {
                     let tx_hash = format!("0x{:x}", receipt.transaction_hash);
                     info!("Anchor transaction submitted: {}", tx_hash);
                     previous_tx_hashes.push(tx_hash.clone());
+
+                    // Check if transaction reverted
+                    if !receipt.status() {
+                        return Err(anyhow!(
+                            "Transaction {} reverted - anchor contract rejected the call",
+                            tx_hash
+                        ));
+                    }
 
                     // Get block number from receipt - a mined transaction should always have this
                     let block_number = receipt
