@@ -17,12 +17,12 @@ ceramic-core.workspace = true
 ceramic-event.workspace = true
 hex.workspace = true
 multihash-codetable.workspace = true
-serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+ceramic-sql.workspace = true
 cid.workspace = true
 expect-test.workspace = true
 test-log.workspace = true

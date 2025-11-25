@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-anchor-evm"
-version = "0.56.0"
+version = "0.56.2"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2176,11 +2176,11 @@ dependencies = [
  "ceramic-anchor-service",
  "ceramic-core",
  "ceramic-event",
+ "ceramic-sql",
  "cid 0.11.1",
  "expect-test",
  "hex",
  "multihash-codetable",
- "serde",
  "test-log",
  "tokio",
  "tracing",

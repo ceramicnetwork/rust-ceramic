@@ -4,85 +4,124 @@ A complete self-anchoring solution for Ceramic that can submit root CIDs to any 
 
 ## Features
 
-- ✅ **Multi-chain Support**: Works with any EVM blockchain (Ethereum, Gnosis, Polygon, Arbitrum, Base, etc.)
-- ✅ **Production Ready**: Comprehensive error handling, retry logic, and gas management
-- ✅ **Compatible**: Maintains compatibility with existing Ceramic anchor service patterns
-- ✅ **Efficient**: Uses modern alloy library with optimal gas usage
-- ✅ **Self-Sovereign**: No reliance on centralized anchor services
+- **Multi-chain Support**: Works with any EVM blockchain (Ethereum, Gnosis, Polygon, Arbitrum, Base, etc.)
+- **Production Ready**: Comprehensive error handling, retry logic with exponential backoff
+- **Compatible**: Maintains compatibility with existing Ceramic anchor service patterns
+- **Efficient**: Uses modern alloy library with automatic gas estimation
+- **Self-Sovereign**: No reliance on centralized anchor services
 
-## Quick Test on Gnosis Chain
+## Testing
 
-The implementation includes a ready-to-test setup using Gnosis Chain with a deployed test contract.
+The crate includes comprehensive tests at multiple levels:
 
-### Prerequisites
+### Unit Tests (no blockchain required)
+
+```bash
+cargo test -p ceramic-anchor-evm
+```
+
+Runs 15 tests including:
+- CID to bytes32 conversion (verified against JS implementation)
+- Transaction hash to CID (uses Keccak256 multihash + ETH_TX codec)
+- Proof building with correct parameter order
+- Configuration validation
+
+### Integration Test: TransactionManager
+
+Tests the EVM transaction submission flow in isolation.
+
+```bash
+# Required: Private key (hex, no 0x prefix)
+export TEST_PRIVATE_KEY="your_private_key_hex"
+
+# Optional: Override defaults
+export TEST_RPC_URL="https://gnosis-mainnet.g.alchemy.com/v2/YOUR_KEY"
+export TEST_CONTRACT_ADDRESS="0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC"
+export TEST_CHAIN_ID="100"
+
+# Run the test
+cargo test -p ceramic-anchor-evm test_evm_anchoring -- --ignored --nocapture
+```
+
+**What it tests:**
+1. Connects to EVM chain and validates chain ID
+2. Submits anchor transaction to contract
+3. Waits for confirmations
+4. Returns `RootTimeEvent` with correct proof structure
+
+### Integration Test: Full AnchorService Flow
+
+Tests the complete anchor pipeline including merkle tree building and time event creation.
+
+```bash
+export TEST_PRIVATE_KEY="your_private_key_hex"
+
+cargo test -p ceramic-anchor-evm test_anchor_service_with_evm -- --ignored --nocapture
+```
+
+**What it tests:**
+1. Creates mock anchor requests via `MockAnchorEventService`
+2. `AnchorService` builds merkle tree from requests
+3. Root CID is anchored on EVM chain
+4. Time events are created with correct merkle paths
+
+**Expected output:**
+```
+=== Full AnchorService Integration Test ===
+RPC: https://gnosis-mainnet.public.blastapi.io
+Chain ID: 100
+Contract: 0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC
+Anchor requests: 3
+  Request 0: id=..., prev=...
+  Request 1: id=..., prev=...
+  Request 2: id=..., prev=...
+
+Anchoring batch...
+Anchoring completed in 18.64s
+
+=== Results ===
+Time events created: 3
+Proof chain ID: eip155:100
+Proof tx_type: f(bytes32)
+Proof tx_hash: bagjqcgza...
+Proof root: bafyreien...
+
+Time Event 0:
+  prev: baeabeig...
+  proof: bafyreic...
+  path: 0/0
+
+Time Event 1:
+  prev: baeabeig...
+  proof: bafyreic...
+  path: 0/1
+
+Time Event 2:
+  prev: baeabeig...
+  proof: bafyreic...
+  path: 1
+
+All assertions passed!
+```
+
+### Test Prerequisites
 
 1. **Test Account**: You'll need a test account with some xDAI (~0.01 xDAI for testing)
 2. **Private Key**: Export your test account's private key (hex format, no 0x prefix)
-
-### Running the Test
-
-```bash
-# Set your test account private key
-export TEST_PRIVATE_KEY="your_private_key_hex_no_0x_prefix"
-
-# Run the Gnosis anchoring test
-cd /Users/mz/Documents/3Box/GitHub/3box/rust-ceramic
-cargo test -p ceramic-anchor-evm test_gnosis_anchoring -- --ignored --nocapture
-```
-
-### What the Test Does
-
-1. **Configuration**: Sets up connection to Gnosis Chain via Alchemy RPC
-2. **Contract**: Uses deployed test contract at `0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC`
-3. **CID Processing**: Converts a test Ceramic CID to the contract format
-4. **Transaction**: Submits anchoring transaction to the blockchain
-5. **Confirmation**: Waits for confirmations and validates the result
-6. **Verification**: Ensures the proof structure is correct for Ceramic
-
-### Expected Output
-
-```
-🧪 Testing EVM anchoring on Gnosis Chain
-📡 RPC: https://gnosis-mainnet.public.blastapi.io
-🔗 Chain ID: 100
-📄 Contract: 0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC
-⏰ Confirmations: 2
-🔍 Validating configuration...
-✅ Configuration valid
-🏗️ Creating EVM transaction manager...
-✅ Transaction manager created
-📝 Test root CID: bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54
-🔢 CID as bytes32: 0x1fffb3c48cddc9b024544f8ee1e58a9e5acaeb2a2b4a990d8497d2ba756413ef
-⚓ Starting anchoring process...
-🎉 Anchoring successful in 15.2s!
-📊 Results:
-  ├─ Chain ID: eip155:100
-  ├─ Transaction Type: f(bytes32)
-  ├─ Transaction Hash: bafkreifx4bqkmc5xvaxvg2ttyf554n5bw3hvo2pojkbslp7xnrk2sw3kuq
-  ├─ Proof CID: bafkreia...
-  └─ Path: ''
-✅ All verification checks passed!
-🔗 View transaction on Gnosis block explorer:
-   https://gnosisscan.io/tx/0x...
-```
+3. **Contract**: Default uses deployed test contract at `0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC`
 
 ## Configuration
 
 The implementation supports comprehensive configuration for different networks:
 
 ```rust
-use ceramic_anchor_evm::{EvmConfig, GasConfig, RetryConfig};
+use ceramic_anchor_evm::{EvmConfig, RetryConfig};
 
 let config = EvmConfig {
     rpc_url: "https://gnosis-mainnet.g.alchemy.com/v2/YOUR_KEY".to_string(),
     private_key: "your_private_key_hex".to_string(),
     chain_id: 100, // Gnosis Chain
     contract_address: "0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC".to_string(),
-    gas_config: GasConfig {
-        gas_limit: Some(300_000),
-        gas_increase_percent: 25, // 25% increase per retry
-        ..GasConfig::default()
-    },
     retry_config: RetryConfig {
         max_retries: 5,
         base_delay: Duration::from_secs(3),
@@ -137,15 +176,16 @@ Extremely cost-effective on Gnosis Chain:
 The implementation uses a simple, efficient contract interface:
 
 ```solidity
-contract SimpleAnchor {
-    mapping(bytes32 => uint256) public rootBlocks;
-    
+interface IAnchorContract {
+    /// Anchor a root CID on the blockchain
     function anchorDagCbor(bytes32 root) external;
-    function getRootBlock(bytes32 root) external view returns (uint256);
-    
+
+    /// Event emitted when a root is anchored
     event RootAnchored(bytes32 indexed root, uint256 blockNumber, address indexed anchor);
 }
 ```
+
+The contract only needs a single function - the Rust implementation handles all proof construction from the transaction receipt.
 
 ## Performance
 
