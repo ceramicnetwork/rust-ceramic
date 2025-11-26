@@ -345,11 +345,14 @@ impl EvmTransactionManager {
 
             interval.tick().await;
 
-            // Get current block number
-            let current_block = provider
-                .get_block_number()
-                .await
-                .map_err(|e| anyhow!("Failed to get current block number: {}", e))?;
+            // Get current block number - continue polling on transient RPC failures
+            let current_block = match provider.get_block_number().await {
+                Ok(block) => block,
+                Err(e) => {
+                    warn!("Failed to get current block number (will retry): {}", e);
+                    continue;
+                }
+            };
 
             let confirmations = current_block.saturating_sub(tx_block);
 
