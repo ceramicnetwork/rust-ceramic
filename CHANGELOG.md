@@ -2,11 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.57.0] - 2025-11-26
+
+### 🚀 Features
+
+- Add anchor-evm crate for EVM-based anchoring ([#742](https://github.com/ceramicnetwork/rust-ceramic/issues/742))
+
 ## [0.56.2] - 2025-10-13
 
 ### 🐛 Bug Fixes
 
 - Aggregator errors when events in pending and incoming batch ([#741](https://github.com/ceramicnetwork/rust-ceramic/issues/741))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.56.2 ([#743](https://github.com/ceramicnetwork/rust-ceramic/issues/743))
 
 ## [0.56.1] - 2025-10-01
 
