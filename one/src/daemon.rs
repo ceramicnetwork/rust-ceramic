@@ -627,91 +627,101 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
 
     // Start anchoring service if EVM or remote CAS options are provided
     // EVM anchoring takes precedence over deprecated remote CAS
-    let anchor_service_handle = if let (Some(rpc_url), Some(private_key), Some(chain_id), Some(contract_address)) = (
-        opts.evm_rpc_url.as_ref(),
-        opts.evm_private_key.as_ref(),
-        opts.evm_chain_id,
-        opts.evm_contract_address.as_ref(),
-    ) {
-        info!(
-            node_did = node_key.did_key(),
-            chain_id = chain_id,
-            confirmations = opts.evm_confirmations,
-            "starting EVM self-anchoring service"
-        );
+    let anchor_service_handle =
+        if let (Some(rpc_url), Some(private_key), Some(chain_id), Some(contract_address)) = (
+            opts.evm_rpc_url.as_ref(),
+            opts.evm_private_key.as_ref(),
+            opts.evm_chain_id,
+            opts.evm_contract_address.as_ref(),
+        ) {
+            info!(
+                node_did = node_key.did_key(),
+                chain_id = chain_id,
+                confirmations = opts.evm_confirmations,
+                "starting EVM self-anchoring service"
+            );
 
-        let evm_config = EvmConfig {
-            rpc_url: rpc_url.clone(),
-            private_key: private_key.clone(),
-            chain_id,
-            contract_address: contract_address.clone(),
-            confirmations: opts.evm_confirmations,
-            ..Default::default()
-        };
+            let evm_config = EvmConfig {
+                rpc_url: rpc_url.clone(),
+                private_key: private_key.clone(),
+                chain_id,
+                contract_address: contract_address.clone(),
+                confirmations: opts.evm_confirmations,
+                ..Default::default()
+            };
 
-        let evm_tx_manager = EvmTransactionManager::new(evm_config)
-            .await
-            .context("Failed to initialize EVM transaction manager")?;
+            let evm_tx_manager = EvmTransactionManager::new(evm_config)
+                .await
+                .context("Failed to initialize EVM transaction manager")?;
 
-        let anchor_service = AnchorService::new(
-            Arc::new(evm_tx_manager),
-            event_svc.clone(),
-            sqlite_pool.clone(),
-            node_id,
-            Duration::from_secs(opts.anchor_interval),
-            opts.anchor_batch_size,
-        );
+            let anchor_service = AnchorService::new(
+                Arc::new(evm_tx_manager),
+                event_svc.clone(),
+                sqlite_pool.clone(),
+                node_id,
+                Duration::from_secs(opts.anchor_interval),
+                opts.anchor_batch_size,
+            );
 
-        Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
-    } else if opts.evm_rpc_url.is_some()
-        || opts.evm_private_key.is_some()
-        || opts.evm_contract_address.is_some()
-    {
-        // Partial EVM options provided - this is an error
-        bail!(
-            "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
+            Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
+        } else if opts.evm_rpc_url.is_some()
+            || opts.evm_private_key.is_some()
+            || opts.evm_contract_address.is_some()
+        {
+            // Partial EVM options provided - this is an error
+            bail!(
+                "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
              --evm-chain-id, and --evm-contract-address must be provided together. \
              Got partial option: {}",
-            if opts.evm_rpc_url.is_some() { "--evm-rpc-url" }
-            else if opts.evm_private_key.is_some() { "--evm-private-key" }
-            else { "--evm-contract-address" }
-        );
-    } else if opts.evm_chain_id.is_some() {
-        bail!(
-            "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
+                if opts.evm_rpc_url.is_some() {
+                    "--evm-rpc-url"
+                } else if opts.evm_private_key.is_some() {
+                    "--evm-private-key"
+                } else {
+                    "--evm-contract-address"
+                }
+            );
+        } else if opts.evm_chain_id.is_some() {
+            bail!(
+                "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
              --evm-chain-id, and --evm-contract-address must be provided together."
-        );
-    } else if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
-        // Deprecated remote CAS fallback
-        warn!(
+            );
+        } else if let Some(remote_anchor_service_url) = {
+            // Allow access to the deprecated field since we're providing a deprecation warning
+            #[allow(deprecated)]
+            let url = opts.remote_anchor_service_url;
+            url
+        } {
+            // Deprecated remote CAS fallback
+            warn!(
             "[DEPRECATED] Using remote anchor service URL. This option is deprecated and will be \
              removed in a future release. Use EVM anchoring options instead."
         );
-        info!(
-            node_did = node_key.did_key(),
-            url = remote_anchor_service_url,
-            poll_interval = opts.anchor_poll_interval,
-            "starting remote cas anchor service"
-        );
-        let remote_cas = RemoteCas::new(
-            node_key,
-            remote_anchor_service_url,
-            Duration::from_secs(opts.anchor_poll_interval),
-            opts.anchor_poll_retry_count,
-        );
-        let anchor_service = AnchorService::new(
-            Arc::new(remote_cas),
-            event_svc.clone(),
-            sqlite_pool.clone(),
-            node_id,
-            Duration::from_secs(opts.anchor_interval),
-            opts.anchor_batch_size,
-        );
+            info!(
+                node_did = node_key.did_key(),
+                url = remote_anchor_service_url,
+                poll_interval = opts.anchor_poll_interval,
+                "starting remote cas anchor service"
+            );
+            let remote_cas = RemoteCas::new(
+                node_key,
+                remote_anchor_service_url,
+                Duration::from_secs(opts.anchor_poll_interval),
+                opts.anchor_poll_retry_count,
+            );
+            let anchor_service = AnchorService::new(
+                Arc::new(remote_cas),
+                event_svc.clone(),
+                sqlite_pool.clone(),
+                node_id,
+                Duration::from_secs(opts.anchor_interval),
+                opts.anchor_batch_size,
+            );
 
-        Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
-    } else {
-        None
-    };
+            Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
+        } else {
+            None
+        };
 
     let (pipeline_handle, pipeline_waiter) = pipeline.into_parts();
     // Build HTTP server

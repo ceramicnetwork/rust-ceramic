@@ -121,9 +121,7 @@ impl EvmTransactionManager {
         // This matches: uint8arrays.toString(rootCid.bytes.slice(4), 'base16')
         if cid_bytes.len() < 36 {
             // 4 prefix + 32 hash bytes
-            anyhow::bail!(
-                "CID too short: need at least 36 bytes (4 prefix + 32 hash)"
-            );
+            anyhow::bail!("CID too short: need at least 36 bytes (4 prefix + 32 hash)");
         }
 
         let hash_bytes = &cid_bytes[4..]; // Skip multicodec prefix
@@ -291,10 +289,7 @@ impl EvmTransactionManager {
                                 .get_transaction_receipt(prev_tx.parse().unwrap_or_default())
                                 .await
                             {
-                                info!(
-                                    "Previous transaction {} was mined successfully",
-                                    prev_tx
-                                );
+                                info!("Previous transaction {} was mined successfully", prev_tx);
                                 if let Ok(ending_balance) =
                                     provider.get_balance(wallet_address).await
                                 {
@@ -395,10 +390,7 @@ impl EvmTransactionManager {
 
         loop {
             if start_time.elapsed() > self.config.confirmation_timeout {
-                anyhow::bail!(
-                    "Timeout waiting for confirmations for tx: {}",
-                    tx_hash
-                );
+                anyhow::bail!("Timeout waiting for confirmations for tx: {}", tx_hash);
             }
 
             interval.tick().await;
