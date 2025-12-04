@@ -15,6 +15,7 @@ arrow-cast.workspace = true
 arrow-flight.workspace = true
 async-stream.workspace = true
 async-trait.workspace = true
+ceramic-anchor-evm.workspace = true
 ceramic-anchor-remote.workspace = true
 ceramic-anchor-service.workspace = true
 ceramic-api-server = { workspace = true, default-features = false, features = [

@@ -133,7 +133,72 @@ let config = EvmConfig {
 };
 ```
 
-## Integration with Ceramic
+## Usage with Ceramic One
+
+The simplest way to enable EVM self-anchoring is via CLI options when running ceramic-one:
+
+### CLI Options
+
+```bash
+ceramic-one daemon \
+  --evm-rpc-url "https://gnosis-mainnet.g.alchemy.com/v2/YOUR_KEY" \
+  --evm-private-key "your_private_key_hex_without_0x" \
+  --evm-chain-id 100 \
+  --evm-contract-address "0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC" \
+  --evm-confirmations 4 \
+  --anchor-interval 3600
+```
+
+### Environment Variables
+
+For production deployments, use environment variables to avoid exposing secrets:
+
+```bash
+# Required EVM options
+export CERAMIC_ONE_EVM_RPC_URL="https://gnosis-mainnet.g.alchemy.com/v2/YOUR_KEY"
+export CERAMIC_ONE_EVM_PRIVATE_KEY="your_private_key_hex_without_0x"
+export CERAMIC_ONE_EVM_CHAIN_ID="100"
+export CERAMIC_ONE_EVM_CONTRACT_ADDRESS="0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC"
+
+# Optional tuning
+export CERAMIC_ONE_EVM_CONFIRMATIONS="4"      # Block confirmations (default: 4)
+export CERAMIC_ONE_ANCHOR_INTERVAL="3600"     # Seconds between anchors (default: 3600)
+export CERAMIC_ONE_ANCHOR_BATCH_SIZE="1000000" # Max events per batch
+
+# Run daemon
+ceramic-one daemon
+```
+
+### Available CLI Options
+
+| Option | Environment Variable | Description | Default |
+|--------|---------------------|-------------|---------|
+| `--evm-rpc-url` | `CERAMIC_ONE_EVM_RPC_URL` | RPC endpoint for EVM chain | Required |
+| `--evm-private-key` | `CERAMIC_ONE_EVM_PRIVATE_KEY` | Private key for signing (hex, no 0x) | Required |
+| `--evm-chain-id` | `CERAMIC_ONE_EVM_CHAIN_ID` | EVM chain ID (e.g., 100 for Gnosis) | Required |
+| `--evm-contract-address` | `CERAMIC_ONE_EVM_CONTRACT_ADDRESS` | Anchor contract address | Required |
+| `--evm-confirmations` | `CERAMIC_ONE_EVM_CONFIRMATIONS` | Block confirmations to wait | 4 |
+| `--anchor-interval` | `CERAMIC_ONE_ANCHOR_INTERVAL` | Seconds between anchor batches | 3600 |
+
+All four EVM options must be provided together.
+
+### Example: Gnosis Chain Setup
+
+```bash
+# 1. Fund a wallet with xDAI (even 0.1 xDAI is sufficient for years of anchoring)
+# 2. Export your private key (hex format, no 0x prefix)
+# 3. Run ceramic-one:
+
+ceramic-one daemon \
+  --network mainnet \
+  --evm-rpc-url "https://gnosis-mainnet.g.alchemy.com/v2/YOUR_KEY" \
+  --evm-private-key "55e16063c21943ad9d70fa10b0b9713c7dc42d4119ca6b83f36056d6188f4c70" \
+  --evm-chain-id 100 \
+  --evm-contract-address "0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC" \
+  --anchor-interval 3600
+```
+
+## Programmatic Integration
 
 The `EvmTransactionManager` implements the `TransactionManager` trait and can be used as a drop-in replacement for the remote CAS:
 
