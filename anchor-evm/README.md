@@ -165,22 +165,29 @@ export CERAMIC_ONE_EVM_CONFIRMATIONS="4"      # Block confirmations (default: 4)
 export CERAMIC_ONE_ANCHOR_INTERVAL="3600"     # Seconds between anchors (default: 3600)
 export CERAMIC_ONE_ANCHOR_BATCH_SIZE="1000000" # Max events per batch
 
+# Optional: Additional RPC URLs for validating anchors from other chains
+# (e.g., historical anchors or synced events anchored on different chains)
+export CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS="https://ethereum-rpc.publicnode.com,https://sepolia-rpc.publicnode.com"
+
 # Run daemon
 ceramic-one daemon
 ```
+
+**Note:** The `CERAMIC_ONE_EVM_RPC_URL` is automatically used for both submitting anchor transactions AND validating anchor proofs on that chain. Use `CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS` only if you need to validate anchors from other chains.
 
 ### Available CLI Options
 
 | Option | Environment Variable | Description | Default |
 |--------|---------------------|-------------|---------|
-| `--evm-rpc-url` | `CERAMIC_ONE_EVM_RPC_URL` | RPC endpoint for EVM chain | Required |
+| `--evm-rpc-url` | `CERAMIC_ONE_EVM_RPC_URL` | RPC endpoint for EVM chain (used for both anchoring and validation) | Required |
 | `--evm-private-key` | `CERAMIC_ONE_EVM_PRIVATE_KEY` | Private key for signing (hex, no 0x) | Required |
 | `--evm-chain-id` | `CERAMIC_ONE_EVM_CHAIN_ID` | EVM chain ID (e.g., 100 for Gnosis) | Required |
 | `--evm-contract-address` | `CERAMIC_ONE_EVM_CONTRACT_ADDRESS` | Anchor contract address | Required |
 | `--evm-confirmations` | `CERAMIC_ONE_EVM_CONFIRMATIONS` | Block confirmations to wait | 4 |
 | `--anchor-interval` | `CERAMIC_ONE_ANCHOR_INTERVAL` | Seconds between anchor batches | 3600 |
+| `--additional-chain-rpc-urls` | `CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS` | Additional RPC URLs for validating anchors from other chains | None |
 
-All four EVM options must be provided together.
+All four EVM options must be provided together for self-anchoring.
 
 ### Example: Gnosis Chain Setup
 

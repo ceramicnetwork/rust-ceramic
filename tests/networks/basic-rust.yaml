@@ -13,7 +13,7 @@ spec:
       ipfs:
         rust:
           env:
-            CERAMIC_ONE_ETHEREUM_RPC_URLS: "http://ganache:8545"
+            CERAMIC_ONE_EVM_RPC_URL: "http://ganache:8545"
             CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS: "0.0.0.0:5102"
           resourceLimits:
             cpu: "4"

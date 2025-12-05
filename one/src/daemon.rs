@@ -263,15 +263,34 @@ pub struct DaemonOpts {
     #[arg(long, default_value_t = 4, env = "CERAMIC_ONE_EVM_CONFIRMATIONS")]
     evm_confirmations: u64,
 
-    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
-    /// Note: only the first valid RPC URL for a particular chain will be used by the time event validator
+    /// [DEPRECATED] Use --additional-chain-rpc-urls instead.
+    ///
+    /// Ethereum RPC URLs used for time events validation.
+    /// This option is deprecated and will be removed in a future release.
     #[arg(
         long,
         use_value_delimiter = true,
         value_delimiter = ',',
-        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS",
+        hide = true
     )]
+    #[deprecated(note = "Use --additional-chain-rpc-urls instead")]
     ethereum_rpc_urls: Vec<String>,
+
+    /// Additional EVM RPC URLs for validating anchor proofs from other chains.
+    ///
+    /// Use this to add RPC endpoints for chains other than the one configured with --evm-rpc-url.
+    /// This is useful for validating historical anchors or synced events that were anchored on different chains.
+    ///
+    /// Note: only the first valid RPC URL for a particular chain will be used by the time event validator.
+    /// The --evm-rpc-url (if provided) is automatically included in the validation list.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS"
+    )]
+    additional_chain_rpc_urls: Vec<String>,
 
     /// Location of the object store bucket, of the form:
     ///
@@ -410,9 +429,36 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         None
     };
 
+    // Build the list of RPC URLs for chain inclusion validation
+    // Priority: evm_rpc_url (if provided) + additional_chain_rpc_urls + deprecated ethereum_rpc_urls
+    let validation_rpc_urls = {
+        let mut urls = Vec::new();
+
+        // Add the self-anchoring RPC URL first (if provided) - it should be used for validation too
+        if let Some(ref evm_url) = opts.evm_rpc_url {
+            urls.push(evm_url.clone());
+        }
+
+        // Add additional chain RPC URLs
+        urls.extend(opts.additional_chain_rpc_urls.clone());
+
+        // Handle deprecated ethereum_rpc_urls with warning
+        #[allow(deprecated)]
+        if !opts.ethereum_rpc_urls.is_empty() {
+            warn!(
+                "[DEPRECATED] --ethereum-rpc-urls / CERAMIC_ONE_ETHEREUM_RPC_URLS is deprecated. \
+                 Use --additional-chain-rpc-urls / CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS instead."
+            );
+            #[allow(deprecated)]
+            urls.extend(opts.ethereum_rpc_urls.clone());
+        }
+
+        urls
+    };
+
     let rpc_providers = opts
         .network
-        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .get_eth_rpc_providers(validation_rpc_urls)
         .await?;
 
     // Construct services from pool
