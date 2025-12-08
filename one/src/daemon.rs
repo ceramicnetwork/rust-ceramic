@@ -5,6 +5,7 @@ use crate::{
     DBOptsExperimental, Info, LogOpts, Network,
 };
 use anyhow::{anyhow, bail, Context as _, Result};
+use ceramic_anchor_evm::{EvmConfig, EvmTransactionManager};
 use ceramic_anchor_remote::RemoteCas;
 use ceramic_anchor_service::AnchorService;
 use ceramic_core::NodeKey;
@@ -183,34 +184,33 @@ pub struct DaemonOpts {
     )]
     flight_sql_bind_address: String,
 
-    /// Remote anchor service URL. Requires using the experimental-features flag
+    /// [DEPRECATED] Remote anchor service URL. Use EVM anchoring options instead.
+    ///
+    /// This option is deprecated and will be removed in a future release.
+    /// Use --evm-rpc-url, --evm-private-key, --evm-chain-id, and --evm-contract-address
+    /// for self-anchoring to an EVM blockchain.
+    /// Requires using the experimental-features flag.
     #[arg(
         long,
         env = "CERAMIC_ONE_REMOTE_ANCHOR_SERVICE_URL",
-        requires = "experimental_features"
+        requires = "experimental_features",
+        hide = true
     )]
+    #[deprecated(note = "Use EVM anchoring options instead")]
     remote_anchor_service_url: Option<String>,
 
-    /// Ceramic One anchor interval in seconds
+    /// Anchor interval in seconds
     ///
-    /// The interval between building a tree for all unanchored events and sending to a CAS
-    /// Requires using the experimental-features flag
-    #[arg(
-        long,
-        default_value_t = 3600,
-        env = "CERAMIC_ONE_ANCHOR_INTERVAL",
-        requires = "experimental_features"
-    )]
+    /// The interval between building a tree for all unanchored events and anchoring to the blockchain.
+    #[arg(long, default_value_t = 3600, env = "CERAMIC_ONE_ANCHOR_INTERVAL")]
     anchor_interval: u64,
 
-    /// Ceramic One anchor batch size
-    /// Requires using the experimental-features flag
+    /// Anchor batch size (maximum events per batch)
     #[arg(
         long,
         default_value_t = 1_000_000,
         hide = true,
-        env = "CERAMIC_ONE_ANCHOR_BATCH_SIZE",
-        requires = "experimental_features"
+        env = "CERAMIC_ONE_ANCHOR_BATCH_SIZE"
     )]
     anchor_batch_size: u64,
 
@@ -238,15 +238,59 @@ pub struct DaemonOpts {
     )]
     anchor_poll_retry_count: u64,
 
-    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
-    /// Note: only the first valid RPC URL for a particular chain will be used by the time event validator
+    /// EVM RPC URL for self-anchoring (e.g., https://gnosis-mainnet.g.alchemy.com/v2/...)
+    ///
+    /// When provided along with other EVM options, enables self-anchoring directly
+    /// to an EVM blockchain instead of using a remote anchor service.
+    #[arg(long, env = "CERAMIC_ONE_EVM_RPC_URL")]
+    evm_rpc_url: Option<String>,
+
+    /// Private key for signing EVM anchor transactions (hex string without 0x prefix)
+    ///
+    /// WARNING: Handle this key securely. Use environment variables in production.
+    #[arg(long, env = "CERAMIC_ONE_EVM_PRIVATE_KEY")]
+    evm_private_key: Option<String>,
+
+    /// EVM chain ID for anchoring (e.g., 100 for Gnosis Chain)
+    #[arg(long, env = "CERAMIC_ONE_EVM_CHAIN_ID")]
+    evm_chain_id: Option<u64>,
+
+    /// EVM anchor contract address (e.g., 0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC)
+    #[arg(long, env = "CERAMIC_ONE_EVM_CONTRACT_ADDRESS")]
+    evm_contract_address: Option<String>,
+
+    /// Number of block confirmations to wait for EVM anchoring
+    #[arg(long, default_value_t = 4, env = "CERAMIC_ONE_EVM_CONFIRMATIONS")]
+    evm_confirmations: u64,
+
+    /// [DEPRECATED] Use --additional-chain-rpc-urls instead.
+    ///
+    /// Ethereum RPC URLs used for time events validation.
+    /// This option is deprecated and will be removed in a future release.
     #[arg(
         long,
         use_value_delimiter = true,
         value_delimiter = ',',
-        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS",
+        hide = true
     )]
+    #[deprecated(note = "Use --additional-chain-rpc-urls instead")]
     ethereum_rpc_urls: Vec<String>,
+
+    /// Additional EVM RPC URLs for validating anchor proofs from other chains.
+    ///
+    /// Use this to add RPC endpoints for chains other than the one configured with --evm-rpc-url.
+    /// This is useful for validating historical anchors or synced events that were anchored on different chains.
+    ///
+    /// Note: only the first valid RPC URL for a particular chain will be used by the time event validator.
+    /// The --evm-rpc-url (if provided) is automatically included in the validation list.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS"
+    )]
+    additional_chain_rpc_urls: Vec<String>,
 
     /// Location of the object store bucket, of the form:
     ///
@@ -385,9 +429,36 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         None
     };
 
+    // Build the list of RPC URLs for chain inclusion validation
+    // Priority: evm_rpc_url (if provided) + additional_chain_rpc_urls + deprecated ethereum_rpc_urls
+    let validation_rpc_urls = {
+        let mut urls = Vec::new();
+
+        // Add the self-anchoring RPC URL first (if provided) - it should be used for validation too
+        if let Some(ref evm_url) = opts.evm_rpc_url {
+            urls.push(evm_url.clone());
+        }
+
+        // Add additional chain RPC URLs
+        urls.extend(opts.additional_chain_rpc_urls.clone());
+
+        // Handle deprecated ethereum_rpc_urls with warning
+        #[allow(deprecated)]
+        if !opts.ethereum_rpc_urls.is_empty() {
+            warn!(
+                "[DEPRECATED] --ethereum-rpc-urls / CERAMIC_ONE_ETHEREUM_RPC_URLS is deprecated. \
+                 Use --additional-chain-rpc-urls / CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS instead."
+            );
+            #[allow(deprecated)]
+            urls.extend(opts.ethereum_rpc_urls.clone());
+        }
+
+        urls
+    };
+
     let rpc_providers = opts
         .network
-        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .get_eth_rpc_providers(validation_rpc_urls)
         .await?;
 
     // Construct services from pool
@@ -600,9 +671,78 @@ pub async fn run(opts: DaemonOpts) -> Result<()> {
         shutdown.wait_fut(),
     ));
 
-    // Start anchoring if remote anchor service URL is provided
+    // Start anchoring service if EVM or remote CAS options are provided
+    // EVM anchoring takes precedence over deprecated remote CAS
     let anchor_service_handle =
-        if let Some(remote_anchor_service_url) = opts.remote_anchor_service_url {
+        if let (Some(rpc_url), Some(private_key), Some(chain_id), Some(contract_address)) = (
+            opts.evm_rpc_url.as_ref(),
+            opts.evm_private_key.as_ref(),
+            opts.evm_chain_id,
+            opts.evm_contract_address.as_ref(),
+        ) {
+            info!(
+                node_did = node_key.did_key(),
+                chain_id = chain_id,
+                confirmations = opts.evm_confirmations,
+                "starting EVM self-anchoring service"
+            );
+
+            let evm_config = EvmConfig {
+                rpc_url: rpc_url.clone(),
+                private_key: private_key.clone(),
+                chain_id,
+                contract_address: contract_address.clone(),
+                confirmations: opts.evm_confirmations,
+                ..Default::default()
+            };
+
+            let evm_tx_manager = EvmTransactionManager::new(evm_config)
+                .await
+                .context("Failed to initialize EVM transaction manager")?;
+
+            let anchor_service = AnchorService::new(
+                Arc::new(evm_tx_manager),
+                event_svc.clone(),
+                sqlite_pool.clone(),
+                node_id,
+                Duration::from_secs(opts.anchor_interval),
+                opts.anchor_batch_size,
+            );
+
+            Some(tokio::spawn(anchor_service.run(shutdown.wait_fut())))
+        } else if opts.evm_rpc_url.is_some()
+            || opts.evm_private_key.is_some()
+            || opts.evm_contract_address.is_some()
+        {
+            // Partial EVM options provided - this is an error
+            bail!(
+                "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
+             --evm-chain-id, and --evm-contract-address must be provided together. \
+             Got partial option: {}",
+                if opts.evm_rpc_url.is_some() {
+                    "--evm-rpc-url"
+                } else if opts.evm_private_key.is_some() {
+                    "--evm-private-key"
+                } else {
+                    "--evm-contract-address"
+                }
+            );
+        } else if opts.evm_chain_id.is_some() {
+            bail!(
+                "Incomplete EVM anchoring configuration. All of --evm-rpc-url, --evm-private-key, \
+             --evm-chain-id, and --evm-contract-address must be provided together."
+            );
+        } else if let Some(remote_anchor_service_url) = {
+            // Allow access to the deprecated field since we're providing a deprecation warning
+            #[allow(deprecated)]
+            let url = opts.remote_anchor_service_url;
+            url
+        } {
+            // Deprecated remote CAS fallback
+            warn!(
+            "[DEPRECATED] Using remote anchor service URL. This option is deprecated and will be \
+             removed in a future release. Use EVM anchoring options instead."
+        );
             info!(
                 node_did = node_key.did_key(),
                 url = remote_anchor_service_url,

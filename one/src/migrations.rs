@@ -132,14 +132,31 @@ pub struct FromIpfsOpts {
     #[clap(long, env = "CERAMIC_ONE_VALIDATE_CHAIN")]
     validate_chain: bool,
 
-    /// Ethereum RPC URLs used for time events validation. Required when connecting to mainnet and uses fallback URLs if not specified for other networks.
+    /// [DEPRECATED] Use --additional-chain-rpc-urls instead.
+    ///
+    /// Ethereum RPC URLs used for time events validation.
+    /// This option is deprecated and will be removed in a future release.
     #[arg(
         long,
         use_value_delimiter = true,
         value_delimiter = ',',
-        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS"
+        env = "CERAMIC_ONE_ETHEREUM_RPC_URLS",
+        hide = true
     )]
+    #[deprecated(note = "Use --additional-chain-rpc-urls instead")]
     ethereum_rpc_urls: Vec<String>,
+
+    /// Additional EVM RPC URLs for validating anchor proofs from other chains.
+    ///
+    /// Use this to add RPC endpoints for chains other than the default for the network.
+    /// Note: only the first valid RPC URL for a particular chain will be used.
+    #[arg(
+        long,
+        use_value_delimiter = true,
+        value_delimiter = ',',
+        env = "CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS"
+    )]
+    additional_chain_rpc_urls: Vec<String>,
 }
 
 impl From<&FromIpfsOpts> for DBOpts {
@@ -182,9 +199,28 @@ async fn from_ipfs(opts: FromIpfsOpts) -> Result<()> {
     let network = opts.network.to_network(&opts.local_network_id)?;
     let db_opts: DBOpts = (&opts).into();
     let sqlite_pool = db_opts.get_sqlite_pool(SqliteOpts::default()).await?;
+    // Build the list of RPC URLs for chain inclusion validation
+    // Priority: additional_chain_rpc_urls + deprecated ethereum_rpc_urls
+    let validation_rpc_urls = {
+        let mut urls = opts.additional_chain_rpc_urls.clone();
+
+        // Handle deprecated ethereum_rpc_urls with warning
+        #[allow(deprecated)]
+        if !opts.ethereum_rpc_urls.is_empty() {
+            warn!(
+                "[DEPRECATED] --ethereum-rpc-urls / CERAMIC_ONE_ETHEREUM_RPC_URLS is deprecated. \
+                 Use --additional-chain-rpc-urls / CERAMIC_ONE_ADDITIONAL_CHAIN_RPC_URLS instead."
+            );
+            #[allow(deprecated)]
+            urls.extend(opts.ethereum_rpc_urls.clone());
+        }
+
+        urls
+    };
+
     let rpc_providers = opts
         .network
-        .get_eth_rpc_providers(opts.ethereum_rpc_urls)
+        .get_eth_rpc_providers(validation_rpc_urls)
         .await?;
 
     // TODO: feature flags here? or just remove this entirely when enabling

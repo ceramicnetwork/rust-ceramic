@@ -26,4 +26,3 @@ ceramic-sql.workspace = true
 cid.workspace = true
 expect-test.workspace = true
 test-log.workspace = true
-tracing-subscriber.workspace = true

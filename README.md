@@ -114,6 +114,10 @@ $ ceramic-one daemon --store-dir ./custom-store-dir
 The process honors RUST_LOG env variable for controlling its logging output.
 For example, to enable debug logging for code from this repo but error logging for all other code use:
 
+## Self-Anchoring
+
+Ceramic One supports self-anchoring directly to EVM-compatible blockchains (Gnosis, Ethereum, Polygon, etc.), eliminating the need for a centralized anchor service. See [anchor-evm/README.md](./anchor-evm/README.md) for setup instructions.
+
 ## License
 
 Fully open source and dual-licensed under MIT and Apache 2.

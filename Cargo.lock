@@ -2184,7 +2184,6 @@ dependencies = [
  "test-log",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "url",
 ]
 
@@ -2597,6 +2596,7 @@ dependencies = [
  "arrow-flight",
  "async-stream",
  "async-trait",
+ "ceramic-anchor-evm",
  "ceramic-anchor-remote",
  "ceramic-anchor-service",
  "ceramic-api",

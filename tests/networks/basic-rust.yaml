@@ -13,7 +13,10 @@ spec:
       ipfs:
         rust:
           env:
-            CERAMIC_ONE_ETHEREUM_RPC_URLS: "http://ganache:8545"
+            CERAMIC_ONE_EVM_RPC_URL: "http://ganache:8545"
+            CERAMIC_ONE_EVM_PRIVATE_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+            CERAMIC_ONE_EVM_CHAIN_ID: "1337"
+            CERAMIC_ONE_EVM_CONTRACT_ADDRESS: "0x231055A0852D67C7107Ad0d0DFeab60278fE6AdC"
             CERAMIC_ONE_FLIGHT_SQL_BIND_ADDRESS: "0.0.0.0:5102"
           resourceLimits:
             cpu: "4"

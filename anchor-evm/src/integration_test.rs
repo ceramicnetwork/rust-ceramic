@@ -4,6 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use ceramic_anchor_service::TransactionManager;
 use ceramic_core::Cid;
+use tracing::{error, info};
 
 use crate::{EvmConfig, EvmTransactionManager, RetryConfig};
 
@@ -19,14 +20,9 @@ use crate::{EvmConfig, EvmTransactionManager, RetryConfig};
 /// - TEST_RPC_URL: RPC endpoint (defaults to public Gnosis RPC)
 /// - TEST_CONTRACT_ADDRESS: Contract address (defaults to deployed test contract)
 /// - TEST_CHAIN_ID: Chain ID (defaults to 100 for Gnosis)
-#[tokio::test]
+#[test_log::test(tokio::test)]
 #[ignore]
 async fn test_evm_anchoring() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("debug")
-        .try_init()
-        .ok();
-
     let private_key =
         std::env::var("TEST_PRIVATE_KEY").expect("TEST_PRIVATE_KEY environment variable required");
 
@@ -56,14 +52,12 @@ async fn test_evm_anchoring() -> Result<()> {
         poll_interval: Duration::from_secs(5),
     };
 
-    println!("RPC: {}", rpc_url);
-    println!("Chain ID: {}", chain_id);
-    println!("Contract: {}", contract_address);
+    info!(rpc = %rpc_url, chain_id, contract = %contract_address, "Test configuration");
 
     let tx_manager = EvmTransactionManager::new(config).await?;
 
     let test_root = Cid::from_str("bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54")?;
-    println!("Test root CID: {}", test_root);
+    info!(root_cid = %test_root, "Starting anchor test");
 
     let start_time = std::time::Instant::now();
 
@@ -71,11 +65,14 @@ async fn test_evm_anchoring() -> Result<()> {
         Ok(root_time_event) => {
             let duration = start_time.elapsed();
 
-            println!("Anchoring successful in {:?}", duration);
-            println!("Chain ID: {}", root_time_event.proof.chain_id());
-            println!("Transaction Type: {}", root_time_event.proof.tx_type());
-            println!("Transaction Hash: {}", root_time_event.proof.tx_hash());
-            println!("Proof CID: {}", root_time_event.detached_time_event.proof);
+            info!(
+                duration = ?duration,
+                chain_id = %root_time_event.proof.chain_id(),
+                tx_type = %root_time_event.proof.tx_type(),
+                tx_hash = %root_time_event.proof.tx_hash(),
+                proof_cid = %root_time_event.detached_time_event.proof,
+                "Anchoring successful"
+            );
 
             assert_eq!(
                 root_time_event.proof.chain_id(),
@@ -88,7 +85,7 @@ async fn test_evm_anchoring() -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            println!("Anchoring failed: {}", e);
+            error!(error = %e, "Anchoring failed");
             Err(e)
         }
     }
@@ -192,18 +189,13 @@ fn test_network_configurations() {
 /// TEST_PRIVATE_KEY="your_private_key_hex" \
 /// cargo test -p ceramic-anchor-evm test_anchor_service_with_evm -- --ignored --nocapture
 /// ```
-#[tokio::test]
+#[test_log::test(tokio::test)]
 #[ignore]
 async fn test_anchor_service_with_evm() -> Result<()> {
     use ceramic_anchor_service::{AnchorService, MockAnchorEventService, Store};
     use ceramic_core::NodeKey;
     use ceramic_sql::sqlite::SqlitePool;
     use std::sync::Arc;
-
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .try_init()
-        .ok();
 
     let private_key =
         std::env::var("TEST_PRIVATE_KEY").expect("TEST_PRIVATE_KEY environment variable required");
@@ -219,10 +211,12 @@ async fn test_anchor_service_with_evm() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
 
-    println!("=== Full AnchorService Integration Test ===");
-    println!("RPC: {}", rpc_url);
-    println!("Chain ID: {}", chain_id);
-    println!("Contract: {}", contract_address);
+    info!(
+        rpc = %rpc_url,
+        chain_id,
+        contract = %contract_address,
+        "Full AnchorService Integration Test"
+    );
 
     // Create EVM transaction manager
     let config = EvmConfig {
@@ -264,35 +258,32 @@ async fn test_anchor_service_with_evm() -> Result<()> {
         .events_since_high_water_mark(node_id, 0, 1_000_000)
         .await?;
 
-    println!("Anchor requests: {}", anchor_requests.len());
+    info!(count = anchor_requests.len(), "Fetched anchor requests");
     for (i, req) in anchor_requests.iter().enumerate() {
-        println!("  Request {}: id={}, prev={}", i, req.id, req.prev);
+        info!(index = i, id = %req.id, prev = %req.prev, "Anchor request");
     }
 
     // Anchor the batch
     let start_time = std::time::Instant::now();
-    println!("\nAnchoring batch...");
+    info!("Anchoring batch...");
 
     let time_event_batch = anchor_service
         .anchor_batch(anchor_requests.as_slice())
         .await?;
 
     let duration = start_time.elapsed();
-    println!("Anchoring completed in {:?}", duration);
+    info!(duration = ?duration, "Anchoring completed");
 
     // Verify results
-    println!("\n=== Results ===");
-    println!(
-        "Time events created: {}",
-        time_event_batch.raw_time_events.events.len()
-    );
-
-    // Check proof
     let proof = &time_event_batch.proof;
-    println!("Proof chain ID: {}", proof.chain_id());
-    println!("Proof tx_type: {}", proof.tx_type());
-    println!("Proof tx_hash: {}", proof.tx_hash());
-    println!("Proof root: {}", proof.root());
+    info!(
+        time_events = time_event_batch.raw_time_events.events.len(),
+        chain_id = %proof.chain_id(),
+        tx_type = %proof.tx_type(),
+        tx_hash = %proof.tx_hash(),
+        root = %proof.root(),
+        "Results"
+    );
 
     // Verify chain ID format
     assert_eq!(
@@ -315,15 +306,15 @@ async fn test_anchor_service_with_evm() -> Result<()> {
         "Should have one time event per anchor request"
     );
 
-    // Print time event details (events is Vec<(AnchorRequest, RawTimeEvent)>)
+    // Log time event details (events is Vec<(AnchorRequest, RawTimeEvent)>)
     for (i, (_anchor_req, time_event)) in time_event_batch.raw_time_events.events.iter().enumerate()
     {
-        println!(
-            "\nTime Event {}:\n  prev: {}\n  proof: {}\n  path: {}",
-            i,
-            time_event.prev(),
-            time_event.proof(),
-            time_event.path()
+        info!(
+            index = i,
+            prev = %time_event.prev(),
+            proof = %time_event.proof(),
+            path = %time_event.path(),
+            "Time event"
         );
     }
 
@@ -348,8 +339,7 @@ async fn test_anchor_service_with_evm() -> Result<()> {
         );
     }
 
-    println!("\n✅ All assertions passed!");
-    println!("The full anchor flow with EVM anchoring works correctly.");
+    info!("All assertions passed! The full anchor flow with EVM anchoring works correctly.");
 
     Ok(())
 }

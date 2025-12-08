@@ -94,19 +94,19 @@ impl EvmTransactionManager {
     /// Validate the configuration
     pub fn validate_config(config: &EvmConfig) -> Result<()> {
         if config.private_key.is_empty() {
-            return Err(anyhow!("Private key cannot be empty"));
+            anyhow::bail!("Private key cannot be empty");
         }
 
         if config.contract_address.is_empty() {
-            return Err(anyhow!("Contract address cannot be empty"));
+            anyhow::bail!("Contract address cannot be empty");
         }
 
         if config.confirmations == 0 {
-            return Err(anyhow!("Confirmations must be greater than 0"));
+            anyhow::bail!("Confirmations must be greater than 0");
         }
 
         if config.retry_config.max_retries == 0 {
-            return Err(anyhow!("Max retries must be greater than 0"));
+            anyhow::bail!("Max retries must be greater than 0");
         }
 
         Ok(())
@@ -121,9 +121,7 @@ impl EvmTransactionManager {
         // This matches: uint8arrays.toString(rootCid.bytes.slice(4), 'base16')
         if cid_bytes.len() < 36 {
             // 4 prefix + 32 hash bytes
-            return Err(anyhow!(
-                "CID too short: need at least 36 bytes (4 prefix + 32 hash)"
-            ));
+            anyhow::bail!("CID too short: need at least 36 bytes (4 prefix + 32 hash)");
         }
 
         let hash_bytes = &cid_bytes[4..]; // Skip multicodec prefix
@@ -171,11 +169,11 @@ impl EvmTransactionManager {
             .map_err(|e| anyhow!("Failed to connect to EVM node: {}", e))?;
 
         if actual_chain_id != self.config.chain_id {
-            return Err(anyhow!(
+            anyhow::bail!(
                 "Chain ID mismatch: configured {} but connected to {}",
                 self.config.chain_id,
                 actual_chain_id
-            ));
+            );
         }
 
         info!("Connected to EVM chain with ID: {}", actual_chain_id);
@@ -186,6 +184,9 @@ impl EvmTransactionManager {
             .await
             .map_err(|e| anyhow!("Failed to get wallet balance: {}", e))?;
         info!("Starting wallet balance: {} wei", starting_balance);
+
+        // Wait for any pending transactions from previous runs to clear
+        Self::wait_for_pending_transactions(&provider, wallet_address).await;
 
         // Create contract instance
         let contract = AnchorContract::new(contract_address, provider.clone());
@@ -229,10 +230,10 @@ impl EvmTransactionManager {
 
                     // Check if transaction reverted
                     if !receipt.status() {
-                        return Err(anyhow!(
+                        anyhow::bail!(
                             "Transaction {} reverted - anchor contract rejected the call",
                             tx_hash
-                        ));
+                        );
                     }
 
                     // Get block number from receipt - a mined transaction should always have this
@@ -272,38 +273,29 @@ impl EvmTransactionManager {
                             .get_balance(wallet_address)
                             .await
                             .unwrap_or(U256::ZERO);
-                        return Err(anyhow!(
+                        anyhow::bail!(
                             "Insufficient funds for transaction. Current balance: {} wei. Error: {}",
                             current_balance, e
-                        ));
+                        );
                     }
 
-                    if error_str.contains("nonce") && error_str.contains("expired")
-                        || error_str.contains("nonce too low")
-                        || error_str.contains("replacement transaction underpriced")
+                    // Check if a previous transaction from THIS run was mined
+                    if self.config.retry_config.check_previous_success
+                        && (error_str.contains("nonce too low")
+                            || error_str.contains("replacement transaction underpriced"))
                     {
-                        // Nonce error - check if a previous transaction was mined
-                        if self.config.retry_config.check_previous_success
-                            && !previous_tx_hashes.is_empty()
-                        {
-                            info!("Nonce error detected, checking if previous transaction was mined...");
-                            for prev_tx in previous_tx_hashes.iter().rev() {
-                                if let Ok(Some(_)) = provider
-                                    .get_transaction_receipt(prev_tx.parse().unwrap_or_default())
-                                    .await
+                        for prev_tx in previous_tx_hashes.iter().rev() {
+                            if let Ok(Some(_)) = provider
+                                .get_transaction_receipt(prev_tx.parse().unwrap_or_default())
+                                .await
+                            {
+                                info!("Previous transaction {} was mined successfully", prev_tx);
+                                if let Ok(ending_balance) =
+                                    provider.get_balance(wallet_address).await
                                 {
-                                    info!(
-                                        "Previous transaction {} was mined successfully",
-                                        prev_tx
-                                    );
-                                    // Log ending wallet balance
-                                    if let Ok(ending_balance) =
-                                        provider.get_balance(wallet_address).await
-                                    {
-                                        info!("Ending wallet balance: {} wei", ending_balance);
-                                    }
-                                    return Ok(prev_tx.clone());
+                                    info!("Ending wallet balance: {} wei", ending_balance);
                                 }
+                                return Ok(prev_tx.clone());
                             }
                         }
                     }
@@ -325,6 +317,67 @@ impl EvmTransactionManager {
         }))
     }
 
+    /// Wait for any pending transactions from this wallet to be mined.
+    /// This prevents "could not replace existing tx" errors from previous runs.
+    async fn wait_for_pending_transactions<P: Provider<Http<Client>>>(
+        provider: &P,
+        wallet_address: Address,
+    ) {
+        const MAX_WAIT: Duration = Duration::from_secs(120);
+        const POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+        let pending_nonce = match provider
+            .get_transaction_count(wallet_address)
+            .pending()
+            .await
+        {
+            Ok(n) => n,
+            Err(_) => return, // Can't check, proceed anyway
+        };
+
+        let confirmed_nonce = match provider.get_transaction_count(wallet_address).await {
+            Ok(n) => n,
+            Err(_) => return,
+        };
+
+        if pending_nonce == confirmed_nonce {
+            return; // No pending transactions
+        }
+
+        info!(
+            pending_nonce,
+            confirmed_nonce, "Waiting for pending transactions to be mined"
+        );
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < MAX_WAIT {
+            sleep(POLL_INTERVAL).await;
+
+            let current_pending = provider
+                .get_transaction_count(wallet_address)
+                .pending()
+                .await
+                .unwrap_or(pending_nonce);
+            let current_confirmed = provider
+                .get_transaction_count(wallet_address)
+                .await
+                .unwrap_or(confirmed_nonce);
+
+            if current_pending == current_confirmed {
+                info!("Pending transactions cleared, proceeding");
+                return;
+            }
+
+            debug!(
+                pending = current_pending,
+                confirmed = current_confirmed,
+                "Still waiting for pending transactions"
+            );
+        }
+
+        warn!("Timed out waiting for pending transactions, proceeding anyway");
+    }
+
     /// Wait for the required number of confirmations
     async fn wait_for_confirmations<P: Provider<Http<Client>>>(
         &self,
@@ -337,10 +390,7 @@ impl EvmTransactionManager {
 
         loop {
             if start_time.elapsed() > self.config.confirmation_timeout {
-                return Err(anyhow!(
-                    "Timeout waiting for confirmations for tx: {}",
-                    tx_hash
-                ));
+                anyhow::bail!("Timeout waiting for confirmations for tx: {}", tx_hash);
             }
 
             interval.tick().await;
