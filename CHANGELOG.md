@@ -2,11 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.57.0] - 2025-11-26
+## [0.58.0] - 2025-12-08
+
+### 🚀 Features
+
+- *(anchor-evm)* Add CLI options for EVM self-anchoring ([#748](https://github.com/ceramicnetwork/rust-ceramic/issues/748))
+
+## [0.57.0] - 2025-11-28
 
 ### 🚀 Features
 
 - Add anchor-evm crate for EVM-based anchoring ([#742](https://github.com/ceramicnetwork/rust-ceramic/issues/742))
+
+### ⚙️ Miscellaneous Tasks
+
+- Version v0.57.0 ([#746](https://github.com/ceramicnetwork/rust-ceramic/issues/746))
 
 ## [0.56.2] - 2025-10-13
 

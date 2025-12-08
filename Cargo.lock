@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-actor"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "async-trait",
  "ceramic-actor-macros",
@@ -2156,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-actor-macros"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "async-trait",
  "ceramic-actor",
@@ -2168,7 +2168,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-anchor-evm"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-anchor-remote"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-anchor-service"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2239,7 +2239,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-api-server"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2301,7 +2301,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-car"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "cid 0.11.1",
  "futures",
@@ -2317,7 +2317,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-core"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -2353,7 +2353,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-event"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "base64 0.21.7",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-event-svc"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -2430,7 +2430,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-flight"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -2463,7 +2463,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-interest-svc"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-kubo-rpc-server"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metadata"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "built",
  "serde",
@@ -2567,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-metrics"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "console-subscriber",
  "lazy_static",
@@ -2588,7 +2588,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-one"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-p2p"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -2694,7 +2694,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-peer-svc"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2726,7 +2726,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-pipeline"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "arrow",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-sql"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "sqlx",
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "ceramic-validation"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -6174,7 +6174,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-bitswap"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -6214,7 +6214,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-client"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -6232,7 +6232,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-rpc-types"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "bytes 1.7.2",
@@ -6247,7 +6247,7 @@ dependencies = [
 
 [[package]]
 name = "iroh-util"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "cid 0.11.1",
  "multihash-codetable",
@@ -9847,7 +9847,7 @@ dependencies = [
 
 [[package]]
 name = "recon"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -10962,7 +10962,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shutdown"
-version = "0.57.0"
+version = "0.58.0"
 dependencies = [
  "futures",
  "tokio",
