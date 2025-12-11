@@ -286,6 +286,11 @@ pub struct Event {
     #[serde(rename = "id")]
     pub id: String,
 
+    /// Numeric offset of the event (monotonic index) used for resuming.
+    #[serde(rename = "offset")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i32>,
+
     /// Multibase encoding of event data.
     #[serde(rename = "data")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -295,7 +300,11 @@ pub struct Event {
 impl Event {
     #[allow(clippy::new_without_default)]
     pub fn new(id: String) -> Event {
-        Event { id, data: None }
+        Event {
+            id,
+            offset: None,
+            data: None,
+        }
     }
 }
 
@@ -307,6 +316,9 @@ impl std::string::ToString for Event {
         let params: Vec<Option<String>> = vec![
             Some("id".to_string()),
             Some(self.id.to_string()),
+            self.offset
+                .as_ref()
+                .map(|offset| ["offset".to_string(), offset.to_string()].join(",")),
             self.data
                 .as_ref()
                 .map(|data| ["data".to_string(), data.to_string()].join(",")),
@@ -328,6 +340,7 @@ impl std::str::FromStr for Event {
         #[allow(dead_code)]
         struct IntermediateRep {
             pub id: Vec<String>,
+            pub offset: Vec<i32>,
             pub data: Vec<String>,
         }
 
@@ -355,6 +368,10 @@ impl std::str::FromStr for Event {
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
                     #[allow(clippy::redundant_clone)]
+                    "offset" => intermediate_rep.offset.push(
+                        <i32 as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
                     "data" => intermediate_rep.data.push(
                         <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
                     ),
@@ -377,6 +394,7 @@ impl std::str::FromStr for Event {
                 .into_iter()
                 .next()
                 .ok_or_else(|| "id missing in Event".to_string())?,
+            offset: intermediate_rep.offset.into_iter().next(),
             data: intermediate_rep.data.into_iter().next(),
         })
     }
