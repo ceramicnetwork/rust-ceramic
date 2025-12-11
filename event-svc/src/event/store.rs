@@ -218,9 +218,18 @@ impl ceramic_api::EventService for EventService {
                     .event_access
                     .new_events_since_value(highwater, limit)
                     .await?;
+                // Compute per-event delivered offsets when the storage layer only returns CIDs.
+                // The storage returns `hw` as the next highwater mark (last_row + 1), so we
+                // reconstruct delivered values relative to `hw` and the number of returned
+                // events to preserve a monotonic sequence for clients.
+                let event_cnt = cids.len() as i64;
                 let res = cids
                     .into_iter()
-                    .map(|cid| ceramic_api::EventDataResult::new(cid, None))
+                    .enumerate()
+                    .map(|(i, cid)| {
+                        let delivered = hw - event_cnt + i as i64 + 1;
+                        ceramic_api::EventDataResult::new(cid, None, delivered)
+                    })
                     .collect();
                 (hw, res)
             }
@@ -234,6 +243,7 @@ impl ceramic_api::EventService for EventService {
                     res.push(ceramic_api::EventDataResult::new(
                         row.cid,
                         Some(row.event.encode_car()?),
+                        row.delivered,
                     ));
                 }
                 (hw, res)

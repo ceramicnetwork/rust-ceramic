@@ -79,6 +79,8 @@ impl EventQuery {
                 ORDER BY key.order_key, eb.idx;"#
     }
 
+    // No delivered-specific grouped query; use `value_blocks_by_order_key_many` for ranges
+
     /// Find event CIDs that have not yet been delivered to the client
     /// Useful after a restart, or if the task managing delivery has availability to try old events
     /// Requires binding two parameters:
