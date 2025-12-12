@@ -39,7 +39,11 @@ jemalloc_pprof = "0.1.0"
 tikv-jemalloc-ctl.workspace = true
 
 [dev-dependencies]
+arrow.workspace = true
+datafusion.workspace = true
 expect-test.workspace = true
+futures.workspace = true
+int-enum.workspace = true
 test-log.workspace = true
 mockall.workspace = true
 object_store.workspace = true

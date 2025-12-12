@@ -37,11 +37,11 @@ async function writeEvents(url: string, events: ReconEventInput[]) {
       method: 'POST',
       body: JSON.stringify(event),
     })
-    if (response.status !== 204) {
+    if (response.status !== 202) {
       const data = await response.text()
       console.warn(`writeEvents: node ${url}, result: ${data}`)
     }
-    expect(response.status).toEqual(204)
+    expect(response.status).toEqual(202)
   }
 }
 

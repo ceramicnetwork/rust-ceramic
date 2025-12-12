@@ -3,7 +3,7 @@ use ceramic_metrics::Recorder;
 
 use crate::metrics::{MessageLabels, Metrics};
 
-use super::{AggregatorRecorder, NewConclusionEventsMsg, StreamStateMsg};
+use super::{AggregatorRecorder, EventValidationStatusMsg, NewConclusionEventsMsg, StreamStateMsg};
 
 impl Recorder<MessageEvent<NewConclusionEventsMsg>> for Metrics {
     fn record(&self, event: &MessageEvent<NewConclusionEventsMsg>) {
@@ -16,6 +16,13 @@ impl Recorder<MessageEvent<NewConclusionEventsMsg>> for Metrics {
 }
 impl Recorder<MessageEvent<StreamStateMsg>> for Metrics {
     fn record(&self, event: &MessageEvent<StreamStateMsg>) {
+        self.message_count
+            .get_or_create(&MessageLabels::from(event))
+            .inc();
+    }
+}
+impl Recorder<MessageEvent<EventValidationStatusMsg>> for Metrics {
+    fn record(&self, event: &MessageEvent<EventValidationStatusMsg>) {
         self.message_count
             .get_or_create(&MessageLabels::from(event))
             .inc();

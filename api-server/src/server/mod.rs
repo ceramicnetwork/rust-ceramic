@@ -624,8 +624,26 @@ where
                                         match result {
                                             Ok(rsp) => match rsp {
                                                 EventsPostResponse::Success
+                                                    (body)
                                                 => {
-                                                    *response.status_mut() = StatusCode::from_u16(204).expect("Unable to turn 204 into a StatusCode");
+                                                    *response.status_mut() = StatusCode::from_u16(201).expect("Unable to turn 201 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_POST_SUCCESS"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
+                                                },
+                                                EventsPostResponse::EventAcceptedButValidationPending
+                                                    (body)
+                                                => {
+                                                    *response.status_mut() = StatusCode::from_u16(202).expect("Unable to turn 202 into a StatusCode");
+                                                    response.headers_mut().insert(
+                                                        CONTENT_TYPE,
+                                                        HeaderValue::from_str("application/json")
+                                                            .expect("Unable to create Content-Type header for EVENTS_POST_EVENT_ACCEPTED_BUT_VALIDATION_PENDING"));
+                                                    let body_content = serde_json::to_string(&body).expect("impossible to fail to serialize");
+                                                    *response.body_mut() = Body::from(body_content);
                                                 },
                                                 EventsPostResponse::BadRequest
                                                     (body)

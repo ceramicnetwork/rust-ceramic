@@ -2242,6 +2242,7 @@ name = "ceramic-api"
 version = "0.58.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "async-trait",
  "ceramic-actor",
  "ceramic-api-server",
@@ -2250,9 +2251,11 @@ dependencies = [
  "ceramic-event",
  "ceramic-metadata",
  "ceramic-pipeline",
+ "datafusion",
  "expect-test",
  "futures",
  "hex",
+ "int-enum",
  "ipld-core",
  "jemalloc_pprof",
  "mockall",

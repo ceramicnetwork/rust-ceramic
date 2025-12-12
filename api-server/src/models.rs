@@ -425,6 +425,319 @@ impl std::convert::TryFrom<hyper::header::HeaderValue> for header::IntoHeaderVal
     }
 }
 
+/// Returned when an event is stored but validation did not complete in time. The event may still be validated successfully.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct EventAcceptedResponse {
+    /// The CID of the accepted event
+    #[serde(rename = "eventId")]
+    pub event_id: String,
+
+    /// Information about the pending validation status
+    #[serde(rename = "message")]
+    pub message: String,
+}
+
+impl EventAcceptedResponse {
+    #[allow(clippy::new_without_default)]
+    pub fn new(event_id: String, message: String) -> EventAcceptedResponse {
+        EventAcceptedResponse { event_id, message }
+    }
+}
+
+/// Converts the EventAcceptedResponse value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for EventAcceptedResponse {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![
+            Some("eventId".to_string()),
+            Some(self.event_id.to_string()),
+            Some("message".to_string()),
+            Some(self.message.to_string()),
+        ];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a EventAcceptedResponse value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for EventAcceptedResponse {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub event_id: Vec<String>,
+            pub message: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing EventAcceptedResponse".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "eventId" => intermediate_rep.event_id.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "message" => intermediate_rep.message.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing EventAcceptedResponse".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(EventAcceptedResponse {
+            event_id: intermediate_rep
+                .event_id
+                .into_iter()
+                .next()
+                .ok_or_else(|| "eventId missing in EventAcceptedResponse".to_string())?,
+            message: intermediate_rep
+                .message
+                .into_iter()
+                .next()
+                .ok_or_else(|| "message missing in EventAcceptedResponse".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<EventAcceptedResponse> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<EventAcceptedResponse>>
+    for hyper::header::HeaderValue
+{
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<EventAcceptedResponse>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for EventAcceptedResponse - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue>
+    for header::IntoHeaderValue<EventAcceptedResponse>
+{
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <EventAcceptedResponse as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into EventAcceptedResponse - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+/// Returned when an event is successfully created and validated
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
+#[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
+pub struct EventCreatedResponse {
+    /// The CID of the created event
+    #[serde(rename = "eventId")]
+    pub event_id: String,
+
+    /// The stream ID this event belongs to
+    #[serde(rename = "streamId")]
+    pub stream_id: String,
+}
+
+impl EventCreatedResponse {
+    #[allow(clippy::new_without_default)]
+    pub fn new(event_id: String, stream_id: String) -> EventCreatedResponse {
+        EventCreatedResponse {
+            event_id,
+            stream_id,
+        }
+    }
+}
+
+/// Converts the EventCreatedResponse value to the Query Parameters representation (style=form, explode=false)
+/// specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde serializer
+impl std::string::ToString for EventCreatedResponse {
+    fn to_string(&self) -> String {
+        let params: Vec<Option<String>> = vec![
+            Some("eventId".to_string()),
+            Some(self.event_id.to_string()),
+            Some("streamId".to_string()),
+            Some(self.stream_id.to_string()),
+        ];
+
+        params.into_iter().flatten().collect::<Vec<_>>().join(",")
+    }
+}
+
+/// Converts Query Parameters representation (style=form, explode=false) to a EventCreatedResponse value
+/// as specified in https://swagger.io/docs/specification/serialization/
+/// Should be implemented in a serde deserializer
+impl std::str::FromStr for EventCreatedResponse {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        /// An intermediate representation of the struct to use for parsing.
+        #[derive(Default)]
+        #[allow(dead_code)]
+        struct IntermediateRep {
+            pub event_id: Vec<String>,
+            pub stream_id: Vec<String>,
+        }
+
+        let mut intermediate_rep = IntermediateRep::default();
+
+        // Parse into intermediate representation
+        let mut string_iter = s.split(',');
+        let mut key_result = string_iter.next();
+
+        while key_result.is_some() {
+            let val = match string_iter.next() {
+                Some(x) => x,
+                None => {
+                    return std::result::Result::Err(
+                        "Missing value while parsing EventCreatedResponse".to_string(),
+                    )
+                }
+            };
+
+            if let Some(key) = key_result {
+                #[allow(clippy::match_single_binding)]
+                match key {
+                    #[allow(clippy::redundant_clone)]
+                    "eventId" => intermediate_rep.event_id.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    #[allow(clippy::redundant_clone)]
+                    "streamId" => intermediate_rep.stream_id.push(
+                        <String as std::str::FromStr>::from_str(val).map_err(|x| x.to_string())?,
+                    ),
+                    _ => {
+                        return std::result::Result::Err(
+                            "Unexpected key while parsing EventCreatedResponse".to_string(),
+                        )
+                    }
+                }
+            }
+
+            // Get the next key
+            key_result = string_iter.next();
+        }
+
+        // Use the intermediate representation to return the struct
+        std::result::Result::Ok(EventCreatedResponse {
+            event_id: intermediate_rep
+                .event_id
+                .into_iter()
+                .next()
+                .ok_or_else(|| "eventId missing in EventCreatedResponse".to_string())?,
+            stream_id: intermediate_rep
+                .stream_id
+                .into_iter()
+                .next()
+                .ok_or_else(|| "streamId missing in EventCreatedResponse".to_string())?,
+        })
+    }
+}
+
+// Methods for converting between header::IntoHeaderValue<EventCreatedResponse> and hyper::header::HeaderValue
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<header::IntoHeaderValue<EventCreatedResponse>>
+    for hyper::header::HeaderValue
+{
+    type Error = String;
+
+    fn try_from(
+        hdr_value: header::IntoHeaderValue<EventCreatedResponse>,
+    ) -> std::result::Result<Self, Self::Error> {
+        let hdr_value = hdr_value.to_string();
+        match hyper::header::HeaderValue::from_str(&hdr_value) {
+            std::result::Result::Ok(value) => std::result::Result::Ok(value),
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Invalid header value for EventCreatedResponse - value: {} is invalid {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
+#[cfg(any(feature = "client", feature = "server"))]
+impl std::convert::TryFrom<hyper::header::HeaderValue>
+    for header::IntoHeaderValue<EventCreatedResponse>
+{
+    type Error = String;
+
+    fn try_from(hdr_value: hyper::header::HeaderValue) -> std::result::Result<Self, Self::Error> {
+        match hdr_value.to_str() {
+            std::result::Result::Ok(value) => {
+                match <EventCreatedResponse as std::str::FromStr>::from_str(value) {
+                    std::result::Result::Ok(value) => {
+                        std::result::Result::Ok(header::IntoHeaderValue(value))
+                    }
+                    std::result::Result::Err(err) => std::result::Result::Err(format!(
+                        "Unable to convert header value '{}' into EventCreatedResponse - {}",
+                        value, err
+                    )),
+                }
+            }
+            std::result::Result::Err(e) => std::result::Result::Err(format!(
+                "Unable to convert header: {:?} to string: {}",
+                hdr_value, e
+            )),
+        }
+    }
+}
+
 /// The data for a Ceramic event that is part of a Ceramic Stream
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, validator::Validate)]
 #[cfg_attr(feature = "conversion", derive(frunk::LabelledGeneric))]
