@@ -28,6 +28,11 @@ pub struct Metrics {
 
     protocol_pending_items: Counter,
     protocol_invalid_items: Family<InvalidItemLabels, Counter>,
+
+    /// Number of connections denied due to peer being blocked
+    blocked_connection_count: Counter,
+    /// Number of inbound syncs rejected due to backoff
+    inbound_sync_rejected_count: Counter,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -121,6 +126,20 @@ impl Metrics {
             sub_registry
         );
 
+        register!(
+            blocked_connection_count,
+            "Number of connections denied due to peer being blocked",
+            Counter::default(),
+            sub_registry
+        );
+
+        register!(
+            inbound_sync_rejected_count,
+            "Number of inbound syncs rejected due to backoff",
+            Counter::default(),
+            sub_registry
+        );
+
         Self {
             protocol_message_received_count,
             protocol_message_sent_count,
@@ -129,6 +148,8 @@ impl Metrics {
             protocol_run_new_keys,
             protocol_pending_items,
             protocol_invalid_items,
+            blocked_connection_count,
+            inbound_sync_rejected_count,
         }
     }
 }
@@ -203,5 +224,23 @@ pub(crate) struct PendingEvents(pub u64);
 impl Recorder<PendingEvents> for Metrics {
     fn record(&self, event: &PendingEvents) {
         self.protocol_pending_items.inc_by(event.0);
+    }
+}
+
+/// Event for when a connection is blocked
+#[derive(Debug)]
+pub struct BlockedConnection;
+impl Recorder<BlockedConnection> for Metrics {
+    fn record(&self, _event: &BlockedConnection) {
+        self.blocked_connection_count.inc();
+    }
+}
+
+/// Event for when an inbound sync is rejected due to backoff
+#[derive(Debug)]
+pub struct InboundSyncRejected;
+impl Recorder<InboundSyncRejected> for Metrics {
+    fn record(&self, _event: &InboundSyncRejected) {
+        self.inbound_sync_rejected_count.inc();
     }
 }
