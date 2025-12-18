@@ -1368,19 +1368,14 @@ impl AggregatorHandle {
             .await??;
 
         // Wait for the event with timeout
-        let batch = match tokio::time::timeout(timeout, stream.try_next()).await {
-            Ok(Ok(Some(batch))) => batch,
-            Ok(Ok(None)) => {
-                // Stream ended without data - shouldn't happen with limit=1
-                return Ok(None);
-            }
-            Ok(Err(e)) => {
-                anyhow::bail!("Error reading event state stream: {e}");
-            }
-            Err(_) => {
-                // Timeout
-                return Ok(None);
-            }
+        // Timeout or stream error returns None
+        let Some(batch) = tokio::time::timeout(timeout, stream.try_next())
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .flatten()
+        else {
+            return Ok(None);
         };
 
         // Parse the batch to extract validation status

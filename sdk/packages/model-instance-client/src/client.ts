@@ -24,7 +24,7 @@ import {
 import type { DocumentState, UnknownContent } from './types.js'
 
 function isObject(item: unknown): item is Record<string, unknown> {
-  return item !== null && typeof item === 'object' && !Array.isArray(item)
+  return item != null && typeof item === 'object' && !Array.isArray(item)
 }
 
 function deepMerge(
