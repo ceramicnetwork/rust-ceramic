@@ -87,11 +87,12 @@ impl TimeEventValidator {
 
         let chain_proof = provider.get_chain_inclusion_proof(event.proof()).await?;
 
-        // Compare the root CID in the TimeEvent's AnchorProof to the root CID that was actually
-        // included in the transaction onchain.
-        if chain_proof.root_cid != event.proof().root() {
+        // Compare the root hash in the TimeEvent's AnchorProof to the root hash that was actually
+        // included in the transaction onchain. We compare hashes (not full CIDs) because the
+        // blockchain only stores the hash - the codec is not preserved on-chain.
+        if chain_proof.root_cid.hash() != event.proof().root().hash() {
             return Err(eth_rpc::Error::InvalidProof(format!(
-                "the root CID is not in the transaction (anchor proof root={}, blockchain transaction root={})",
+                "the root hash is not in the transaction (anchor proof root={}, blockchain transaction root={})",
                 event.proof().root(),
                 chain_proof.root_cid,
             )));
@@ -303,7 +304,7 @@ mod test {
             }
             Err(e) => match e {
                 eth_rpc::Error::InvalidProof(e) => assert!(
-                    e.contains("the root CID is not in the transaction"),
+                    e.contains("the root hash is not in the transaction"),
                     "{:#}",
                     e
                 ),
@@ -338,7 +339,7 @@ mod test {
             }
             Err(e) => match e {
                 eth_rpc::Error::InvalidProof(e) => assert!(
-                    e.contains("the root CID is not in the transaction"),
+                    e.contains("the root hash is not in the transaction"),
                     "{:#}",
                     e
                 ),
