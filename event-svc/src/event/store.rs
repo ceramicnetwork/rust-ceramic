@@ -264,6 +264,17 @@ impl ceramic_anchor_service::Store for EventService {
         // All items in a batch share the same chain inclusion data since they're from the same anchor tx.
         let chain_inclusion = items.iter().find_map(|i| i.chain_inclusion.clone());
 
+        // Persist chain inclusion proof FIRST for self-anchored events.
+        // This aligns with the external event flow (service.rs persists proofs before events)
+        // and ensures events are never orphaned without their chain proofs.
+        if let Some(chain_data) = chain_inclusion {
+            let proof: ChainProof = chain_data.into();
+            self.event_access
+                .persist_chain_inclusion_proofs(&[proof])
+                .await
+                .context("failed to persist chain inclusion proof for self-anchored events")?;
+        }
+
         let items = items
             .into_iter()
             .map(|insertable| {
@@ -281,15 +292,6 @@ impl ceramic_anchor_service::Store for EventService {
             .insert_many(items.iter())
             .await
             .context("anchoring insert_many failed")?;
-
-        // Persist chain inclusion proof for self-anchored events
-        if let Some(chain_data) = chain_inclusion {
-            let proof: ChainProof = chain_data.into();
-            self.event_access
-                .persist_chain_inclusion_proofs(&[proof])
-                .await
-                .context("failed to persist chain inclusion proof for self-anchored events")?;
-        }
 
         Ok(())
     }
