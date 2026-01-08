@@ -275,7 +275,6 @@ impl EventValidator {
             }
         }
     }
-
 }
 
 #[cfg(test)]

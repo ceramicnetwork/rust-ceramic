@@ -284,7 +284,8 @@ impl EvmTransactionManager {
 
                             // Construct tx_input: function selector (0x97ad09eb) + 32-byte hash
                             let root_hash = Self::cid_to_bytes32(&root_cid)?;
-                            let tx_input = format!("0x97ad09eb{}", hex::encode(root_hash.as_slice()));
+                            let tx_input =
+                                format!("0x97ad09eb{}", hex::encode(root_hash.as_slice()));
 
                             return Ok(AnchorResult {
                                 tx_hash,
