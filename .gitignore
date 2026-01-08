@@ -9,7 +9,7 @@
 sync_test.sh
 
 openapi-generator-cli.jar
-.env
+.env*
 ceramic_cicddb.sqlite*
 event-svc/model_error_counts.csv
 /.history

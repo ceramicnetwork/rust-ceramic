@@ -19,4 +19,5 @@ Receipt {
         "Cid(bafyreigab6skaymtdwkpee4yzkhhglqzl7kbd2wrv24r2uqk3iol44gfga): [Some(Cid(bafyreia776z4jdg5zgycivcpr3q6lcu6llfowkrljkmq3bex2k5hkzat54)), Some(Cid(bagcqcera24qtqvh7yjbm72iqov56tmiubltdfn2rwjgcokkxjbovbih6x24q))]",
         "Cid(bafyreigay6frqlwu7dzhf4vch3oxeavkciyogkosbqrttljzgraghl3mo4): [Some(Cid(bafyreigab6skaymtdwkpee4yzkhhglqzl7kbd2wrv24r2uqk3iol44gfga)), Some(Cid(bafyreid6fo2bz67eza23ulv3l6d7uwu4nd5rmsdx3clijnelebkqscdiqa))]",
     ],
+    chain_inclusion: None,
 }

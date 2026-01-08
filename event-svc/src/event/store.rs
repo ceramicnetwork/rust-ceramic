@@ -11,7 +11,7 @@ use recon::{HashCount, ReconItem, Result as ReconResult, Sha256a};
 use tracing::info;
 
 use crate::event::{DeliverableRequirement, EventService};
-use crate::store::{BlockAccess, EventInsertable};
+use crate::store::{BlockAccess, ChainProof, EventInsertable};
 use crate::Error;
 
 use super::service::{InsertResult, ValidationError, ValidationRequirement};
@@ -260,6 +260,28 @@ impl ceramic_anchor_service::Store for EventService {
         items: Vec<ceramic_anchor_service::TimeEventInsertable>,
         informant: NodeId,
     ) -> Result<()> {
+        // Extract chain inclusion data from the first item that has it.
+        // All items in a batch share the same chain inclusion data since they're from the same anchor tx.
+        let chain_inclusion = items.iter().find_map(|i| i.chain_inclusion.clone());
+
+        // Persist chain inclusion proof FIRST for self-anchored events.
+        // This aligns with the external event flow (service.rs persists proofs before events)
+        // and ensures events are never orphaned without their chain proofs.
+        //
+        // NOTE: These operations are NOT wrapped in a single transaction. Failure scenarios:
+        // - If proof persistence fails: early return, no events inserted (safe)
+        // - If proof succeeds but event insertion fails: orphaned proof remains in DB
+        //   This is acceptable because:
+        //   1. Orphaned proofs are harmless (just extra data, no foreign key constraints)
+        //   2. The proof can be used if the events are retried later
+        if let Some(chain_data) = chain_inclusion {
+            let proof: ChainProof = chain_data.into();
+            self.event_access
+                .persist_chain_inclusion_proofs(&[proof])
+                .await
+                .context("failed to persist chain inclusion proof for self-anchored events")?;
+        }
+
         let items = items
             .into_iter()
             .map(|insertable| {
@@ -277,6 +299,7 @@ impl ceramic_anchor_service::Store for EventService {
             .insert_many(items.iter())
             .await
             .context("anchoring insert_many failed")?;
+
         Ok(())
     }
 

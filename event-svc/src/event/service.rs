@@ -545,7 +545,7 @@ impl EventService {
 
     /// Get the chain proof for a given event from the database.
     /// All proofs should have been validated and stored during the event validation phase (v0.55.0+).
-    async fn discover_chain_proof(
+    pub(crate) async fn discover_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,
     ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {
@@ -556,6 +556,9 @@ impl EventService {
             .await
             .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?
             .ok_or_else(|| {
+                // Note: Using InvalidProof here rather than TxNotFound because:
+                // - TxNotFound is for "transaction not found on blockchain" (RPC-level)
+                // - This is "proof not in local database" (local storage issue)
                 crate::eth_rpc::Error::InvalidProof(format!(
                     "Chain proof for tx {} not found in database.",
                     tx_hash

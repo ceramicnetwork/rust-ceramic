@@ -7,6 +7,23 @@ use ceramic_event::unvalidated::AnchorProof;
 
 use crate::anchor::MerkleNodes;
 
+/// Chain inclusion data from the blockchain transaction.
+/// This contains the data needed to verify the anchor proof against the blockchain,
+/// and is persisted to avoid redundant RPC calls during pipeline validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainInclusionData {
+    /// The chain ID in CAIP-2 format (e.g., "eip155:100")
+    pub chain_id: String,
+    /// The transaction hash (e.g., "0x...")
+    pub transaction_hash: String,
+    /// The transaction input data (function selector + root hash, e.g., "0x97ad09eb...")
+    pub transaction_input: String,
+    /// The block hash containing the transaction
+    pub block_hash: String,
+    /// The block timestamp (Unix timestamp in seconds)
+    pub timestamp: u64,
+}
+
 /// A struct containing a blockchain proof CID, the path prefix to the CID in the anchored Merkle tree and the
 /// corresponding Merkle tree nodes.
 pub struct RootTimeEvent {
@@ -16,6 +33,8 @@ pub struct RootTimeEvent {
     pub detached_time_event: DetachedTimeEvent,
     /// the Merkle tree nodes from the remote anchoring service
     pub remote_merkle_nodes: MerkleNodes,
+    /// Chain inclusion data for self-anchored events (None for remote CAS)
+    pub chain_inclusion: Option<ChainInclusionData>,
 }
 
 impl std::fmt::Debug for RootTimeEvent {
@@ -30,6 +49,7 @@ impl std::fmt::Debug for RootTimeEvent {
             .field("proof", &self.proof)
             .field("detached_time_event", &self.detached_time_event)
             .field("remote_merkle_nodes", &merkle_tree_nodes)
+            .field("chain_inclusion", &self.chain_inclusion)
             .finish()
     }
 }
