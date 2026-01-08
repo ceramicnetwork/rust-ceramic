@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use alloy::{
+    hex,
     network::EthereumWallet,
     primitives::{Address, FixedBytes, U256},
     providers::{Provider, ProviderBuilder},
@@ -9,7 +10,9 @@ use alloy::{
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use ceramic_anchor_service::{DetachedTimeEvent, MerkleNodes, RootTimeEvent, TransactionManager};
+use ceramic_anchor_service::{
+    ChainInclusionData, DetachedTimeEvent, MerkleNodes, RootTimeEvent, TransactionManager,
+};
 use ceramic_core::{Cid, SerializeExt};
 use tokio::time::{interval, sleep};
 use tracing::{debug, info, warn};
@@ -82,6 +85,18 @@ pub struct EvmTransactionManager {
     config: EvmConfig,
 }
 
+/// Result of submitting and confirming an anchor transaction
+struct AnchorResult {
+    /// The transaction hash (0x-prefixed)
+    tx_hash: String,
+    /// The block hash containing the transaction
+    block_hash: String,
+    /// The block timestamp (Unix timestamp in seconds)
+    timestamp: u64,
+    /// The transaction input data (0x-prefixed function selector + hash)
+    tx_input: String,
+}
+
 impl EvmTransactionManager {
     /// Create a new EVM transaction manager
     pub async fn new(config: EvmConfig) -> Result<Self> {
@@ -134,7 +149,7 @@ impl EvmTransactionManager {
     }
 
     /// Submit an anchor transaction and wait for confirmation with retry logic
-    async fn submit_and_wait(&self, root_cid: Cid) -> Result<String> {
+    async fn submit_and_wait(&self, root_cid: Cid) -> Result<AnchorResult> {
         info!(
             "Anchoring root CID: {} on chain {}",
             root_cid, self.config.chain_id
@@ -255,7 +270,28 @@ impl EvmTransactionManager {
                                 let gas_used = starting_balance.saturating_sub(ending_balance);
                                 info!("Total gas cost: {} wei", gas_used);
                             }
-                            return Ok(tx_hash);
+
+                            // Get block hash from receipt
+                            let block_hash = receipt
+                                .block_hash
+                                .ok_or_else(|| anyhow!("Transaction receipt missing block hash"))?;
+
+                            // Fetch block to get timestamp (false = don't include full transactions)
+                            let block = provider
+                                .get_block_by_number(block_number.into(), false)
+                                .await?
+                                .ok_or_else(|| anyhow!("Block {} not found", block_number))?;
+
+                            // Construct tx_input: function selector (0x97ad09eb) + 32-byte hash
+                            let root_hash = Self::cid_to_bytes32(&root_cid)?;
+                            let tx_input = format!("0x97ad09eb{}", hex::encode(root_hash.as_slice()));
+
+                            return Ok(AnchorResult {
+                                tx_hash,
+                                block_hash: format!("0x{:x}", block_hash),
+                                timestamp: block.header.timestamp,
+                                tx_input,
+                            });
                         }
                         Err(e) => {
                             warn!("Transaction confirmation failed: {}", e);
@@ -287,7 +323,7 @@ impl EvmTransactionManager {
                             || error_str.contains("replacement transaction underpriced"))
                     {
                         for prev_tx in previous_tx_hashes.iter().rev() {
-                            if let Ok(Some(_)) = provider
+                            if let Ok(Some(prev_receipt)) = provider
                                 .get_transaction_receipt(prev_tx.parse().unwrap_or_default())
                                 .await
                             {
@@ -297,7 +333,32 @@ impl EvmTransactionManager {
                                 {
                                     info!("Ending wallet balance: {} wei", ending_balance);
                                 }
-                                return Ok(prev_tx.clone());
+
+                                // Get block info from the previous receipt
+                                let block_hash = prev_receipt.block_hash.ok_or_else(|| {
+                                    anyhow!("Previous transaction receipt missing block hash")
+                                })?;
+                                let block_number = prev_receipt.block_number.ok_or_else(|| {
+                                    anyhow!("Previous transaction receipt missing block number")
+                                })?;
+
+                                // Fetch block to get timestamp (false = don't include full transactions)
+                                let block = provider
+                                    .get_block_by_number(block_number.into(), false)
+                                    .await?
+                                    .ok_or_else(|| anyhow!("Block {} not found", block_number))?;
+
+                                // Construct tx_input from root_cid
+                                let root_hash = Self::cid_to_bytes32(&root_cid)?;
+                                let tx_input =
+                                    format!("0x97ad09eb{}", hex::encode(root_hash.as_slice()));
+
+                                return Ok(AnchorResult {
+                                    tx_hash: prev_tx.clone(),
+                                    block_hash: format!("0x{:x}", block_hash),
+                                    timestamp: block.header.timestamp,
+                                    tx_input,
+                                });
                             }
                         }
                     }
@@ -428,10 +489,11 @@ impl EvmTransactionManager {
 impl TransactionManager for EvmTransactionManager {
     async fn anchor_root(&self, root: Cid) -> Result<RootTimeEvent> {
         // Submit transaction and wait for confirmation
-        let tx_hash = self.submit_and_wait(root).await?;
+        let anchor_result = self.submit_and_wait(root).await?;
 
         // Build anchor proof from transaction details
-        let proof = ProofBuilder::build_proof(self.config.chain_id, tx_hash, root)?;
+        let proof =
+            ProofBuilder::build_proof(self.config.chain_id, anchor_result.tx_hash.clone(), root)?;
         let proof_cid = proof.to_cid()?;
 
         // Create detached time event
@@ -441,12 +503,22 @@ impl TransactionManager for EvmTransactionManager {
             proof: proof_cid,
         };
 
+        // Create chain inclusion data for persistence
+        let chain_inclusion = ChainInclusionData {
+            chain_id: format!("eip155:{}", self.config.chain_id),
+            transaction_hash: anchor_result.tx_hash,
+            transaction_input: anchor_result.tx_input,
+            block_hash: anchor_result.block_hash,
+            timestamp: anchor_result.timestamp,
+        };
+
         // Return root time event with no additional remote Merkle nodes
         // (all nodes are local since we built the entire tree)
         Ok(RootTimeEvent {
             proof,
             detached_time_event,
             remote_merkle_nodes: MerkleNodes::default(),
+            chain_inclusion: Some(chain_inclusion),
         })
     }
 }

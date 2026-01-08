@@ -192,6 +192,7 @@ impl AnchorService {
             proof,
             detached_time_event,
             mut remote_merkle_nodes,
+            chain_inclusion,
         } = self.tx_manager.anchor_root(root_cid).await?;
         let time_events = build_time_events(anchor_requests, &detached_time_event, count)?;
         remote_merkle_nodes.extend(local_merkle_nodes);
@@ -199,6 +200,7 @@ impl AnchorService {
             merkle_nodes: remote_merkle_nodes,
             proof,
             raw_time_events: time_events,
+            chain_inclusion,
         })
     }
 

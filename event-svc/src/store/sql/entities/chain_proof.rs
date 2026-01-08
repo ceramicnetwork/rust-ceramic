@@ -31,3 +31,18 @@ impl From<eth_rpc::ChainInclusionProof> for ChainProof {
         }
     }
 }
+
+impl From<ceramic_anchor_service::ChainInclusionData> for ChainProof {
+    fn from(value: ceramic_anchor_service::ChainInclusionData) -> Self {
+        Self {
+            chain_id: value.chain_id,
+            transaction_hash: value.transaction_hash,
+            transaction_input: value.transaction_input,
+            block_hash: value.block_hash,
+            timestamp: value
+                .timestamp
+                .try_into()
+                .expect("chain proof timestamp overflow"),
+        }
+    }
+}
