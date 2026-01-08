@@ -1,6 +1,7 @@
 mod event;
 mod migration;
 mod ordering;
+mod self_anchor;
 
 use std::{str::FromStr, sync::Arc};
 

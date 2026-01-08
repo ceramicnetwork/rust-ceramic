@@ -267,6 +267,13 @@ impl ceramic_anchor_service::Store for EventService {
         // Persist chain inclusion proof FIRST for self-anchored events.
         // This aligns with the external event flow (service.rs persists proofs before events)
         // and ensures events are never orphaned without their chain proofs.
+        //
+        // NOTE: These operations are NOT wrapped in a single transaction. Failure scenarios:
+        // - If proof persistence fails: early return, no events inserted (safe)
+        // - If proof succeeds but event insertion fails: orphaned proof remains in DB
+        //   This is acceptable because:
+        //   1. Orphaned proofs are harmless (just extra data, no foreign key constraints)
+        //   2. The proof can be used if the events are retried later
         if let Some(chain_data) = chain_inclusion {
             let proof: ChainProof = chain_data.into();
             self.event_access
