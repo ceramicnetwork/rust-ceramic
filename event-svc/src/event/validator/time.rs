@@ -90,7 +90,35 @@ impl TimeEventValidator {
         // Compare the root hash in the TimeEvent's AnchorProof to the root hash that was actually
         // included in the transaction onchain. We compare hashes (not full CIDs) because the
         // blockchain only stores the hash - the codec is not preserved on-chain.
-        if chain_proof.root_cid.hash() != event.proof().root().hash() {
+        let chain_digest = chain_proof.root_cid.hash().digest();
+        let event_proof_root = event.proof().root();
+        let proof_digest = event_proof_root.hash().digest();
+
+        if chain_digest != proof_digest {
+            // During clay self-anchor rollout, some anchors were made with the incorrect data.
+            // anchor-evm left the codec byte (0x20) as a prefix, resulting in the last byte of
+            // data being discarded. As a fallback, we allow matching on 31 bytes before 2026-02-01
+            if chain_id.to_string() == "eip155:100"
+                && chain_proof.timestamp.as_unix_ts() < 1769904000u64
+                && chain_digest.first() == Some(&0x20)
+            {
+                warn!(
+                    "falling back to relaxed check for codec-shifted anchor (chain digest={}, proof digest={})",
+                    hex::encode(chain_digest),
+                    hex::encode(proof_digest),
+                );
+
+                if chain_digest.get(1..) == proof_digest.get(..31) {
+                    warn!("relaxed check passed, accepting proof with shifted digest");
+                    return Ok(chain_proof);
+                }
+
+                return Err(eth_rpc::Error::InvalidProof(format!(
+                    "relaxed check failed: shifted digest mismatch (chain digest={}, proof digest={})",
+                    hex::encode(chain_digest),
+                    hex::encode(proof_digest)
+                )));
+            }
             return Err(eth_rpc::Error::InvalidProof(format!(
                 "the root hash is not in the transaction (anchor proof root={}, blockchain transaction root={})",
                 event.proof().root(),
@@ -343,6 +371,106 @@ mod test {
                     "{:#}",
                     e
                 ),
+                err => panic!("got wrong error: {:?}", err),
+            },
+        }
+    }
+
+    /// Create a Gnosis chain time event for testing the codec-shifted digest fallback
+    fn time_event_gnosis() -> unvalidated::TimeEvent {
+        unvalidated::Builder::time()
+            .with_id(
+                Cid::from_str("bagcqcerar2aga7747dm6fota3iipogz4q55gkaamcx2weebs6emvtvie2oha")
+                    .unwrap(),
+            )
+            .with_tx(
+                "eip155:100".into(), // Gnosis chain
+                Cid::from_str("bagjqcgzadp7fstu7fz5tfi474ugsjqx5h6yvevn54w5m4akayhegdsonwciq")
+                    .unwrap(),
+                "f(bytes32)".into(),
+            )
+            .with_root(0, ipld_core::ipld! {[Cid::from_str("bagcqcerae5oqoglzjjgz53enwsttl7mqglp5eoh2llzbbvfktmzxleeiffbq").unwrap(), Ipld::Null, Cid::from_str("bafyreifjkogkhyqvr2gtymsndsfg3wpr7fg4q5r3opmdxoddfj4s2dyuoa").unwrap()]})
+            .build()
+            .expect("should be valid time event")
+    }
+
+    /// Creates a CID with a shifted digest simulating the anchor-evm bug:
+    /// [0x20, original[0..31]] instead of [original[0..32]]
+    fn create_shifted_digest_cid(original_cid: &Cid) -> Cid {
+        let original_digest = original_cid.hash().digest();
+        let mut shifted = [0u8; 32];
+        shifted[0] = 0x20; // codec byte that was accidentally included
+        shifted[1..].copy_from_slice(&original_digest[..31]);
+
+        let mh = multihash::Multihash::<64>::wrap(0x12, &shifted).expect("valid multihash");
+        Cid::new_v1(original_cid.codec(), mh)
+    }
+
+    async fn get_mock_gnosis_provider(
+        input: unvalidated::AnchorProof,
+        root_cid: Cid,
+        timestamp: Timestamp,
+    ) -> TimeEventValidator {
+        let mut mock_provider = MockEthRpcProviderTest::new();
+        let chain_id = caip2::ChainId::from_str("eip155:100").expect("eip155:100 is a valid chain");
+
+        mock_provider
+            .expect_chain_id()
+            .once()
+            .return_const(chain_id.clone());
+        mock_provider
+            .expect_get_chain_inclusion_proof()
+            .once()
+            .with(predicate::eq(input))
+            .return_once(move |_| {
+                Ok(eth_rpc::ChainInclusionProof {
+                    timestamp,
+                    root_cid,
+                    block_hash: "0x0".to_string(),
+                    metadata: ChainProofMetadata {
+                        chain_id,
+                        tx_hash: "0x0".to_string(),
+                        tx_input: "0x0".to_string(),
+                    },
+                })
+            });
+        TimeEventValidator::new_with_providers(vec![Arc::new(mock_provider)])
+    }
+
+    #[test(tokio::test)]
+    async fn valid_proof_codec_shifted_digest_gnosis() {
+        let event = time_event_gnosis();
+        let shifted_root = create_shifted_digest_cid(&event.proof().root());
+        // Timestamp before 2026-02-01 cutoff (1769904000)
+        let old_timestamp = Timestamp::from_unix_ts(1700000000);
+
+        let verifier =
+            get_mock_gnosis_provider(event.proof().clone(), shifted_root, old_timestamp.clone()).await;
+
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(proof) => {
+                assert_eq!(proof.timestamp, old_timestamp);
+            }
+            Err(e) => panic!("should have passed with relaxed check: {:?}", e),
+        }
+    }
+
+    #[test(tokio::test)]
+    async fn invalid_proof_codec_shifted_after_cutoff() {
+        let event = time_event_gnosis();
+        let shifted_root = create_shifted_digest_cid(&event.proof().root());
+        // Timestamp AFTER 2026-02-01 cutoff - should reject
+        let future_timestamp = Timestamp::from_unix_ts(1769904001);
+
+        let verifier =
+            get_mock_gnosis_provider(event.proof().clone(), shifted_root, future_timestamp).await;
+
+        match verifier.validate_chain_inclusion(&event).await {
+            Ok(v) => panic!("should have failed after cutoff: {:?}", v),
+            Err(e) => match e {
+                eth_rpc::Error::InvalidProof(msg) => {
+                    assert!(msg.contains("the root hash is not in the transaction"), "{}", msg);
+                }
                 err => panic!("got wrong error: {:?}", err),
             },
         }
