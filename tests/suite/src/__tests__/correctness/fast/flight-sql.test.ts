@@ -262,7 +262,7 @@ describe('flight sql', () => {
       schema: {
         type: 'object',
         properties: {
-          test: { type: 'string', maxLength: 10 },
+          test: { type: 'string', maxLength: 100 },
         },
         additionalProperties: false,
       },

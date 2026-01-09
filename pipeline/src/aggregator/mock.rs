@@ -7,8 +7,8 @@ use prometheus_client::registry::Registry;
 use crate::metrics::Metrics;
 
 use super::{
-    Aggregator, AggregatorActor, AggregatorEnvelope, AggregatorHandle, NewConclusionEventsMsg,
-    StreamStateMsg, SubscribeSinceMsg,
+    Aggregator, AggregatorActor, AggregatorEnvelope, AggregatorHandle, EventValidationStatusMsg,
+    NewConclusionEventsMsg, StreamStateMsg, SubscribeSinceMsg,
 };
 
 mock! {
@@ -34,6 +34,11 @@ mock! {
             message: StreamStateMsg,
         ) -> <StreamStateMsg
             as Message>::Result;
+        #[allow(missing_docs)]
+        pub fn handle_event_validation_status(
+            &mut self,
+            message: EventValidationStatusMsg,
+        ) -> <EventValidationStatusMsg as Message>::Result;
     }
 }
 
@@ -61,6 +66,16 @@ impl Handler<NewConclusionEventsMsg> for MockAggregator {
 impl Handler<StreamStateMsg> for MockAggregator {
     async fn handle(&mut self, message: StreamStateMsg) -> <StreamStateMsg as Message>::Result {
         self.handle_stream_state(message)
+    }
+}
+
+#[async_trait]
+impl Handler<EventValidationStatusMsg> for MockAggregator {
+    async fn handle(
+        &mut self,
+        message: EventValidationStatusMsg,
+    ) -> <EventValidationStatusMsg as Message>::Result {
+        self.handle_event_validation_status(message)
     }
 }
 

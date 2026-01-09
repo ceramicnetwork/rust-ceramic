@@ -958,6 +958,7 @@ actor_envelope! {
     // TODO: Remove this message and use the analogous message on the Resolver.
     // This way the canonical stream state is provided via the API
     StreamState => StreamStateMsg,
+    EventValidationStatus => EventValidationStatusMsg,
 }
 
 #[async_trait]
@@ -1219,6 +1220,108 @@ impl Handler<StreamStateMsg> for Aggregator {
     }
 }
 
+/// Request the validation status of an event by its CID
+#[derive(Debug)]
+pub struct EventValidationStatusMsg {
+    /// CID of the event
+    pub event_cid: Cid,
+}
+
+impl Message for EventValidationStatusMsg {
+    type Result = anyhow::Result<Option<EventValidationStatus>>;
+}
+
+/// Validation status of an event
+#[derive(Debug)]
+pub enum EventValidationStatus {
+    /// Event passed validation
+    Valid {
+        /// Stream ID this event belongs to
+        stream_id: StreamId,
+    },
+    /// Event failed validation
+    Invalid {
+        /// Stream ID this event belongs to
+        stream_id: StreamId,
+        /// Validation error messages
+        errors: Vec<String>,
+    },
+}
+
+#[async_trait]
+impl Handler<EventValidationStatusMsg> for Aggregator {
+    #[instrument(skip(self), ret, err)]
+    async fn handle(
+        &mut self,
+        message: EventValidationStatusMsg,
+    ) -> <EventValidationStatusMsg as Message>::Result {
+        let event_cid = message.event_cid;
+
+        // Query event_states table for this event CID
+        let result_batch = self
+            .ctx
+            .table(EVENT_STATES_TABLE)
+            .await
+            .context("table not found {EVENT_STATES_TABLE}")?
+            .select(vec![col("stream_cid"), col("validation_errors")])
+            .context("invalid select")?
+            .filter(col("event_cid").eq(lit(event_cid.to_bytes())))
+            .context("invalid filter")?
+            .collect()
+            .await
+            .context("invalid query")?;
+
+        let num_rows: usize = result_batch.iter().map(|b| b.num_rows()).sum();
+        if num_rows == 0 {
+            // Event not yet processed
+            return Ok(None);
+        }
+
+        let batch = concat_batches(&result_batch[0].schema(), result_batch.iter())
+            .context("concat batches")?;
+
+        // Get stream_cid
+        let stream_cid_col = as_binary_array(
+            batch
+                .column_by_name("stream_cid")
+                .ok_or_else(|| anyhow::anyhow!("stream_cid column should exist"))?,
+        )
+        .context("stream_cid as a binary column")?;
+        let stream_cid = Cid::read_bytes(stream_cid_col.value(0)).context("stream_cid as a CID")?;
+        let stream_id = StreamId {
+            r#type: StreamIdType::ModelInstanceDocument, // Default, could be determined from data
+            cid: stream_cid,
+        };
+
+        // Get validation_errors
+        let validation_errors_col = batch
+            .column_by_name("validation_errors")
+            .ok_or_else(|| anyhow::anyhow!("validation_errors column should exist"))?;
+
+        // Check if validation_errors is empty
+        let list_array = validation_errors_col
+            .as_any()
+            .downcast_ref::<arrow::array::ListArray>()
+            .ok_or_else(|| anyhow::anyhow!("validation_errors should be a list array"))?;
+
+        if list_array.is_null(0) || list_array.value(0).is_empty() {
+            return Ok(Some(EventValidationStatus::Valid { stream_id }));
+        }
+
+        let errors_array = list_array.value(0);
+        let string_array = errors_array
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("validation_errors items should be strings"))?;
+
+        let errors: Vec<String> = (0..string_array.len())
+            .map(|i| string_array.value(i).to_string())
+            .collect();
+
+        Ok(Some(EventValidationStatus::Invalid { stream_id, errors }))
+    }
+}
+
 #[async_trait]
 impl FeedTableSource for AggregatorHandle {
     fn schema(&self) -> SchemaRef {
@@ -1237,6 +1340,106 @@ impl FeedTableSource for AggregatorHandle {
                 limit,
             })
             .await??)
+    }
+}
+
+impl AggregatorHandle {
+    /// Wait for an event to be processed and return its validation status.
+    ///
+    /// Subscribes to the event_states stream filtered by the event CID and waits
+    /// for the event to appear (either from historical data or live broadcast).
+    /// Returns the validation status once the event is processed, or None on timeout.
+    pub async fn wait_for_event_validation(
+        &self,
+        event_cid: Cid,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<Option<EventValidationStatus>> {
+        // Subscribe to event_states with filter for this specific event_cid.
+        // The subscription combines historical query results with live broadcast updates,
+        // so we get notified immediately if the event is already processed, or when it arrives.
+        let filter = col("event_cid").eq(lit(event_cid.to_bytes()));
+
+        let mut stream = self
+            .send(SubscribeSinceMsg {
+                projection: None,
+                filters: Some(vec![filter]),
+                limit: Some(1), // Only need the first (and only) matching row
+            })
+            .await??;
+
+        // Wait for the event with timeout
+        // Timeout or stream error returns None
+        let Some(batch) = tokio::time::timeout(timeout, stream.try_next())
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .flatten()
+        else {
+            return Ok(None);
+        };
+
+        // Parse the batch to extract validation status
+        Self::parse_validation_status_from_batch(&batch)
+    }
+
+    fn parse_validation_status_from_batch(
+        batch: &RecordBatch,
+    ) -> anyhow::Result<Option<EventValidationStatus>> {
+        use arrow::array::{Array as _, AsArray as _};
+        use int_enum::IntEnum as _;
+
+        if batch.num_rows() == 0 {
+            return Ok(None);
+        }
+
+        // Get stream_cid
+        let stream_cid_col = as_binary_array(
+            batch
+                .column_by_name("stream_cid")
+                .ok_or_else(|| anyhow::anyhow!("stream_cid column should exist"))?,
+        )
+        .context("stream_cid as a binary column")?;
+        let stream_cid = Cid::read_bytes(stream_cid_col.value(0)).context("stream_cid as a CID")?;
+
+        // Get stream_type
+        let stream_type_col = batch
+            .column_by_name("stream_type")
+            .ok_or_else(|| anyhow::anyhow!("stream_type column should exist"))?
+            .as_primitive::<arrow::datatypes::UInt8Type>();
+        let stream_type_value = stream_type_col.value(0) as u64;
+        let stream_type = StreamIdType::from_int(stream_type_value)
+            .map_err(|_| anyhow::anyhow!("Invalid stream type: {stream_type_value}"))?;
+
+        let stream_id = StreamId {
+            r#type: stream_type,
+            cid: stream_cid,
+        };
+
+        // Get validation_errors
+        let validation_errors_col = batch
+            .column_by_name("validation_errors")
+            .ok_or_else(|| anyhow::anyhow!("validation_errors column should exist"))?;
+
+        let list_array = validation_errors_col
+            .as_any()
+            .downcast_ref::<arrow::array::ListArray>()
+            .ok_or_else(|| anyhow::anyhow!("validation_errors should be a list array"))?;
+
+        if list_array.is_null(0) || list_array.value(0).is_empty() {
+            return Ok(Some(EventValidationStatus::Valid { stream_id }));
+        }
+
+        let errors_array = list_array.value(0);
+        let string_array = errors_array
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("validation_errors items should be strings"))?;
+
+        let errors: Vec<String> = (0..string_array.len())
+            .map(|i| string_array.value(i).to_string())
+            .collect();
+
+        Ok(Some(EventValidationStatus::Invalid { stream_id, errors }))
     }
 }
 

@@ -355,5 +355,55 @@ describe('ModelInstanceClient', () => {
       expect(postEventType).toHaveBeenCalled()
       expect(mockGet).not.toHaveBeenCalled()
     })
+
+    test('merges partial updates with existing content', async () => {
+      // Create mock state with multiple fields
+      const multiFieldMockState = {
+        id: 'k2t6wyfsu4pfy7r1jdd6jex9oxbqyp4gr2a5kxs8ioxwtisg8nzj3anbckji8g',
+        event_cid:
+          'bafyreib5j4def5a4w4j6sg4upm6nb4cfn752wdjwqtwdzejfladyyymxca',
+        controller: 'did:key:z6MkiTBz1ymuepAQ4HEHYSF1H8quG5GLVVQR3djdX3mDooWp',
+        dimensions: {
+          context: 'u',
+          controller:
+            'uZGlkOmtleTp6Nk1raVRCejF5bXVlcEFRNEhFSFlTRjFIOHF1RzVHTFZWUVIzZGpkWDNtRG9vV3A',
+          model: 'uzgEAAXESIA8og02Dnbwed_besT8M0YOnaZ-hrmMZaa7mnpdUL8jE',
+        },
+        // Encoded JSON: {"metadata":{"shouldIndex":true},"content":{"field1":"original1","field2":"original2"}}
+        data: 'ueyJtZXRhZGF0YSI6eyJzaG91bGRJbmRleCI6dHJ1ZX0sImNvbnRlbnQiOnsiZmllbGQxIjoib3JpZ2luYWwxIiwiZmllbGQyIjoib3JpZ2luYWwyIn19',
+      }
+
+      const streamId =
+        'k2t6wyfsu4pfy7r1jdd6jex9oxbqyp4gr2a5kxs8ioxwtisg8nzj3anbckji8g'
+
+      // Mock CeramicClient and its API
+      const postEventType = jest.fn(() => randomCID())
+      const mockGet = jest.fn(() =>
+        Promise.resolve({
+          data: multiFieldMockState,
+          error: null,
+        }),
+      )
+
+      const ceramic = {
+        api: { GET: mockGet },
+        postEventType,
+      } as unknown as CeramicClient
+      const client = new ModelInstanceClient({ ceramic, did: authenticatedDID })
+
+      // Only update field1, leave field2 untouched
+      const partialUpdate = { field1: 'updated1' }
+
+      const newState = await client.updateDocument({
+        streamID: streamId,
+        newContent: partialUpdate,
+      })
+
+      // Verify that field2 is preserved and field1 is updated
+      expect(newState.content).toEqual({
+        field1: 'updated1',
+        field2: 'original2',
+      })
+    })
   })
 })

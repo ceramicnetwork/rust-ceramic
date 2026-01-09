@@ -7,7 +7,7 @@
 mod event;
 
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{future::Future, ops::Range};
 use std::{marker::PhantomData, ops::RangeBounds};
 use std::{net::SocketAddr, ops::Bound};
@@ -38,7 +38,7 @@ use ceramic_api_server::{
 use ceramic_core::{
     ensure_multiaddr_has_p2p, Cid, EventId, Interest, Network, NodeId, PeerId, StreamId,
 };
-use ceramic_pipeline::aggregator::{AggregatorHandle, StreamStateMsg};
+use ceramic_pipeline::aggregator::{AggregatorHandle, EventValidationStatus, StreamStateMsg};
 use ceramic_pipeline::PipelineHandle;
 use futures::TryFutureExt;
 use multiaddr::Protocol;
@@ -47,7 +47,6 @@ use shutdown::Shutdown;
 use swagger::{ApiError, ByteArray};
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemalloc_ctl::epoch;
-use tokio::sync::broadcast;
 use tracing::{instrument, trace, Level};
 
 use crate::server::event::event_id_from_car;
@@ -706,6 +705,10 @@ where
                 }
             };
 
+        let event_cid = event_id
+            .cid()
+            .ok_or_else(|| ErrorResponse::new("Event ID missing CID".to_string()))?;
+
         let (tx, rx) = tokio::sync::oneshot::channel();
         tokio::time::timeout(
             INSERT_ENQUEUE_TIMEOUT,
@@ -738,9 +741,59 @@ where
             .map_err(|e| ErrorResponse::new(format!("Failed to insert event: {e}")))?;
 
         match new {
-            EventInsertResult::Success(_) => Ok(EventsPostResponse::Success),
+            EventInsertResult::Success(_) => {
+                // Wait for the event to be processed by the pipeline and check validation
+                self.wait_for_event_validation(event_cid).await
+            }
             EventInsertResult::Failed(_, reason) => Ok(EventsPostResponse::BadRequest(
                 BadRequestResponse::new(reason),
+            )),
+        }
+    }
+
+    /// Wait for an event to be processed by the pipeline and return validation result.
+    ///
+    /// Uses event-based subscription to the aggregator's broadcast channel rather than polling.
+    /// The aggregator broadcasts processed events, and we filter for the specific event CID.
+    async fn wait_for_event_validation(
+        &self,
+        event_cid: Cid,
+    ) -> Result<EventsPostResponse, ErrorResponse> {
+        // If no pipeline/aggregator, return success immediately (no validation)
+        let aggregator = match self.pipeline.as_ref().and_then(|p| p.aggregator()) {
+            Some(agg) => agg,
+            None => {
+                // No aggregator available, return success with just the event ID
+                return Ok(EventsPostResponse::Success(
+                    models::EventCreatedResponse::new(event_cid.to_string(), String::new()),
+                ));
+            }
+        };
+
+        // Wait for the event to be processed with timeout
+        let status = aggregator
+            .wait_for_event_validation(event_cid, INSERT_REQUEST_TIMEOUT)
+            .await
+            .map_err(|e| ErrorResponse::new(format!("Error waiting for event validation: {e}")))?;
+
+        match status {
+            Some(EventValidationStatus::Valid { stream_id }) => Ok(EventsPostResponse::Success(
+                models::EventCreatedResponse::new(event_cid.to_string(), stream_id.to_string()),
+            )),
+            Some(EventValidationStatus::Invalid { stream_id, errors }) => {
+                Ok(EventsPostResponse::BadRequest(BadRequestResponse::new(
+                    format!(
+                        "Validation failed for stream {}: {}",
+                        stream_id,
+                        errors.join("; ")
+                    ),
+                )))
+            }
+            None => Ok(EventsPostResponse::EventAcceptedButValidationPending(
+                models::EventAcceptedResponse::new(
+                    event_cid.to_string(),
+                    "Event accepted but validation did not complete in time. The event is stored and may still be validated. Use the event_id to check status.".to_string(),
+                ),
             )),
         }
     }

@@ -23,6 +23,27 @@ import {
 } from './events.js'
 import type { DocumentState, UnknownContent } from './types.js'
 
+function isObject(item: unknown): item is Record<string, unknown> {
+  return item != null && typeof item === 'object' && !Array.isArray(item)
+}
+
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target }
+  for (const key of Object.keys(source)) {
+    const sourceValue = source[key]
+    const targetValue = target[key]
+    if (isObject(sourceValue) && isObject(targetValue)) {
+      result[key] = deepMerge(targetValue, sourceValue)
+    } else {
+      result[key] = sourceValue
+    }
+  }
+  return result
+}
+
 /**
  * Parameters for creating a singleton instance of a model.
  */
@@ -257,8 +278,7 @@ export class ModelInstanceClient extends StreamClient {
    * @returns A promise that resolves to the updated `DocumentState`.
    *
    * @remarks
-   * This method posts the new content as a data event, updating the document.
-   * It can optionally take the current document state to avoid re-fetching it.
+   * Uses deep merge - nested objects are merged recursively, arrays are replaced.
    */
   async updateDocument<T extends UnknownContent = UnknownContent>(
     params: UpdateDataParams<T>,
@@ -274,13 +294,15 @@ export class ModelInstanceClient extends StreamClient {
       currentState = this.streamStateToDocumentState(params.currentState)
     }
 
-    const { content } = currentState
+    const { content: currentContent } = currentState
     const { controller, newContent, shouldIndex, modelVersion } = params
+
+    const mergedContent = deepMerge(currentContent ?? {}, newContent) as T
 
     const newCommit = await this.postData({
       controller: this.getDID(controller),
-      currentContent: content ?? undefined,
-      newContent,
+      currentContent: currentContent ?? undefined,
+      newContent: mergedContent,
       currentID: currentState.commitID,
       shouldIndex,
       modelVersion,
@@ -288,7 +310,7 @@ export class ModelInstanceClient extends StreamClient {
 
     return {
       commitID: newCommit,
-      content: newContent,
+      content: mergedContent,
       metadata: {
         model: currentState.metadata.model,
         controller: currentState.metadata.controller,

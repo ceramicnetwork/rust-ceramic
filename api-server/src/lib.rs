@@ -81,7 +81,9 @@ pub enum EventsOptionsResponse {
 #[must_use]
 pub enum EventsPostResponse {
     /// success
-    Success,
+    Success(models::EventCreatedResponse),
+    /// Event accepted but validation pending. The event was stored but validation did not complete in time. Use the returned event_id to check status.
+    EventAcceptedButValidationPending(models::EventAcceptedResponse),
     /// bad request
     BadRequest(models::BadRequestResponse),
     /// Internal server error

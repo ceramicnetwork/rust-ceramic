@@ -10,6 +10,8 @@ use crate::{
 };
 
 use anyhow::Result;
+use arrow::array::{BinaryArray, ListBuilder, RecordBatch, StringBuilder, UInt8Array};
+use arrow::datatypes::{DataType, Field, Schema};
 use async_trait::async_trait;
 use ceramic_api_server::{
     models::{self},
@@ -21,7 +23,9 @@ use ceramic_pipeline::{
     aggregator::{mock::MockAggregator, StreamState},
     PipelineHandle,
 };
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use expect_test::expect;
+use futures::stream;
 use mockall::{mock, predicate};
 use multiaddr::Multiaddr;
 use multibase::Base;
@@ -248,7 +252,7 @@ async fn create_event() {
         )
         .await
         .unwrap();
-    assert!(matches!(resp, EventsPostResponse::Success));
+    assert!(matches!(resp, EventsPostResponse::Success(_)));
 }
 
 #[test(tokio::test)]
@@ -303,8 +307,8 @@ async fn create_event_twice() {
             &Context,
         ),
     );
-    assert_eq!(resp1.unwrap(), EventsPostResponse::Success);
-    assert_eq!(resp2.unwrap(), EventsPostResponse::Success);
+    assert!(matches!(resp1.unwrap(), EventsPostResponse::Success(_)));
+    assert!(matches!(resp2.unwrap(), EventsPostResponse::Success(_)));
 }
 #[test(tokio::test)]
 async fn create_event_fails() {
@@ -1121,4 +1125,225 @@ async fn stream_state() {
         )
     "#]]
     .assert_debug_eq(&String::from_utf8(multibase::decode(state.data).unwrap().1));
+}
+
+/// Creates a RecordBatch for mocking validation status responses.
+/// This creates the minimal schema needed by AggregatorHandle::parse_validation_status_from_batch
+fn create_validation_status_batch(
+    stream_id: &StreamId,
+    validation_errors: Vec<String>,
+) -> RecordBatch {
+    use int_enum::IntEnum;
+
+    // Create a minimal schema with just the columns needed for validation status
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("stream_cid", DataType::Binary, false),
+        Field::new("stream_type", DataType::UInt8, false),
+        Field::new(
+            "validation_errors",
+            DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))),
+            true,
+        ),
+    ]));
+
+    // Build the arrays
+    let stream_cid_bytes = stream_id.cid.to_bytes();
+    let stream_cid_array = BinaryArray::from(vec![stream_cid_bytes.as_slice()]);
+    let stream_type_array = UInt8Array::from(vec![stream_id.r#type.int_value() as u8]);
+
+    // Build validation_errors list
+    // For ListBuilder: first append values, then call append(true) to finalize the list row
+    let mut list_builder = ListBuilder::new(StringBuilder::new());
+    for error in &validation_errors {
+        list_builder.values().append_value(error);
+    }
+    list_builder.append(true); // Finalize the list for this row
+    let validation_errors_array = list_builder.finish();
+
+    RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(stream_cid_array),
+            Arc::new(stream_type_array),
+            Arc::new(validation_errors_array),
+        ],
+    )
+    .expect("Failed to create RecordBatch")
+}
+
+#[test(tokio::test)]
+async fn create_event_with_pipeline_valid() {
+    let node_id = NodeKey::random().id();
+    let network = Network::Mainnet;
+    let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+
+    // Remove whitespace from event CAR file
+    let event_data = DATA_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_get_init_event(&mut mock_event_store);
+    let args = vec![ApiItem::new(
+        expected_event_id.clone(),
+        decode_multibase_data(&event_data).unwrap(),
+    )];
+
+    mock_event_store
+        .expect_insert_many()
+        .with(predicate::eq(args), predicate::eq(node_id))
+        .times(1)
+        .returning(|input, _| {
+            Ok(input
+                .into_iter()
+                .map(|v| EventInsertResult::new_ok(v.key.clone()))
+                .collect())
+        });
+
+    // Mock aggregator to return valid validation status via subscribe_since
+    let mut aggregator = MockAggregator::new();
+    let stream_id: StreamId = "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp"
+        .parse()
+        .unwrap();
+    let batch = create_validation_status_batch(&stream_id, vec![]);
+    let schema = batch.schema();
+    aggregator
+        .expect_handle_subscribe_since()
+        .returning(move |_msg| {
+            let batch = batch.clone();
+            let schema = schema.clone();
+            Ok(Box::pin(RecordBatchStreamAdapter::new(
+                schema,
+                stream::once(async move { Ok(batch) }),
+            )))
+        });
+
+    let pipeline = PipelineHandle::new(
+        ceramic_pipeline::pipeline_ctx(Arc::new(InMemory::new()))
+            .await
+            .unwrap(),
+        None,
+        Some(MockAggregator::spawn(aggregator)),
+    );
+
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        MockP2PService::new(),
+        Some(pipeline),
+    );
+    let resp = server
+        .events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        )
+        .await
+        .unwrap();
+
+    // Verify we get a Success response with event ID and stream ID
+    match resp {
+        EventsPostResponse::Success(created) => {
+            assert!(!created.event_id.is_empty());
+            assert!(!created.stream_id.is_empty());
+        }
+        other => panic!("Expected Success response, got: {:?}", other),
+    }
+}
+
+#[test(tokio::test)]
+async fn create_event_with_pipeline_invalid() {
+    let node_id = NodeKey::random().id();
+    let network = Network::Mainnet;
+    let expected_event_id = EventId::try_from(hex::decode(DATA_EVENT_ID).unwrap()).unwrap();
+
+    // Remove whitespace from event CAR file
+    let event_data = DATA_EVENT_CAR
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mock_interest = MockAccessInterestStoreTest::new();
+    let mut mock_event_store = MockEventStoreTest::new();
+    mock_get_init_event(&mut mock_event_store);
+    let args = vec![ApiItem::new(
+        expected_event_id.clone(),
+        decode_multibase_data(&event_data).unwrap(),
+    )];
+
+    mock_event_store
+        .expect_insert_many()
+        .with(predicate::eq(args), predicate::eq(node_id))
+        .times(1)
+        .returning(|input, _| {
+            Ok(input
+                .into_iter()
+                .map(|v| EventInsertResult::new_ok(v.key.clone()))
+                .collect())
+        });
+
+    // Mock aggregator to return invalid validation status with errors via subscribe_since
+    let mut aggregator = MockAggregator::new();
+    let stream_id: StreamId = "k2t6wzhjp5kk3zrbu5tyfjqdrhxyvwnzmxv8htviiganzacva34pfedi5g72tp"
+        .parse()
+        .unwrap();
+    let batch = create_validation_status_batch(
+        &stream_id,
+        vec![
+            "Missing required field: name".to_string(),
+            "Invalid field type: age must be integer".to_string(),
+        ],
+    );
+    let schema = batch.schema();
+    aggregator
+        .expect_handle_subscribe_since()
+        .returning(move |_msg| {
+            let batch = batch.clone();
+            let schema = schema.clone();
+            Ok(Box::pin(RecordBatchStreamAdapter::new(
+                schema,
+                stream::once(async move { Ok(batch) }),
+            )))
+        });
+
+    let pipeline = PipelineHandle::new(
+        ceramic_pipeline::pipeline_ctx(Arc::new(InMemory::new()))
+            .await
+            .unwrap(),
+        None,
+        Some(MockAggregator::spawn(aggregator)),
+    );
+
+    let server = create_test_server(
+        node_id,
+        network,
+        mock_interest,
+        Arc::new(mock_event_store),
+        MockP2PService::new(),
+        Some(pipeline),
+    );
+    let resp = server
+        .events_post(
+            models::EventData {
+                data: event_data.to_string(),
+            },
+            &Context,
+        )
+        .await
+        .unwrap();
+
+    // Verify we get a BadRequest response with validation errors
+    match resp {
+        EventsPostResponse::BadRequest(bad_request) => {
+            assert!(bad_request.message.contains("Validation failed"));
+            assert!(bad_request.message.contains("Missing required field: name"));
+            assert!(bad_request
+                .message
+                .contains("Invalid field type: age must be integer"));
+        }
+        other => panic!("Expected BadRequest response, got: {:?}", other),
+    }
 }

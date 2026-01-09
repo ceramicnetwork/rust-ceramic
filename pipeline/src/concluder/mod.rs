@@ -228,7 +228,7 @@ async fn poll_new_events(
     metrics: Metrics,
     mut shutdown: ShutdownSignal,
 ) -> anyhow::Result<()> {
-    let mut interval = interval(Duration::from_millis(1_000));
+    let mut interval = interval(Duration::from_millis(100));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     // Poll for new events until shutdown

@@ -107,8 +107,18 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/EventData"
       responses:
-        "204":
+        "201":
           description: success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventCreatedResponse"
+        "202":
+          description: Event accepted but validation pending. The event was stored but validation did not complete in time. Use the returned event_id to check status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventAcceptedResponse"
         "400":
           description: bad request
           content:
@@ -639,6 +649,34 @@ components:
         data:
           type: string
           description: Multibase encoding of event data.
+    EventCreatedResponse:
+      title: Response after event creation
+      description: Returned when an event is successfully created and validated
+      type: object
+      required:
+        - eventId
+        - streamId
+      properties:
+        eventId:
+          type: string
+          description: The CID of the created event
+        streamId:
+          type: string
+          description: The stream ID this event belongs to
+    EventAcceptedResponse:
+      title: Response when event is accepted but validation is pending
+      description: Returned when an event is stored but validation did not complete in time. The event may still be validated successfully.
+      type: object
+      required:
+        - eventId
+        - message
+      properties:
+        eventId:
+          type: string
+          description: The CID of the accepted event
+        message:
+          type: string
+          description: Information about the pending validation status
     EventFeed:
       title: Ceramic Event feed data
       description: Ceramic event keys as part of a Ceramic Stream
