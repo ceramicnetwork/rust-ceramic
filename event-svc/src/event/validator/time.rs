@@ -445,7 +445,8 @@ mod test {
         let old_timestamp = Timestamp::from_unix_ts(1700000000);
 
         let verifier =
-            get_mock_gnosis_provider(event.proof().clone(), shifted_root, old_timestamp.clone()).await;
+            get_mock_gnosis_provider(event.proof().clone(), shifted_root, old_timestamp.clone())
+                .await;
 
         match verifier.validate_chain_inclusion(&event).await {
             Ok(proof) => {
@@ -469,7 +470,11 @@ mod test {
             Ok(v) => panic!("should have failed after cutoff: {:?}", v),
             Err(e) => match e {
                 eth_rpc::Error::InvalidProof(msg) => {
-                    assert!(msg.contains("the root hash is not in the transaction"), "{}", msg);
+                    assert!(
+                        msg.contains("the root hash is not in the transaction"),
+                        "{}",
+                        msg
+                    );
                 }
                 err => panic!("got wrong error: {:?}", err),
             },
