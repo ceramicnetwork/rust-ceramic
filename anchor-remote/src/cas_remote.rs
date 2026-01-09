@@ -220,6 +220,7 @@ async fn parse_anchor_response(anchor_response: String) -> Result<CasResponsePar
         proof: proof.expect("proof should be present"),
         detached_time_event: detached_time_event.expect("detached time event should be present"),
         remote_merkle_nodes,
+        chain_inclusion: None,
     })))
 }
 

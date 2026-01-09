@@ -34,6 +34,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B75170171122072D0B0181556FFCE636242C424188FF826014A651DD225D511200E9C85374865",
@@ -70,6 +71,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112206FEF93C0B67F1C93B2574F46BFBC7274592E8C2349921722BB426117B6082726",
@@ -106,6 +108,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112204AC042CCE1C67A1523D01720FA4B5AAB5E5E3632DC10DC1451C9F19B86901610",
@@ -142,6 +145,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112200FDC7F813BADA92906BC21E1C9523E2C08FDB6D370EDD8F8517AF15E50CEDC68",
@@ -178,6 +182,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B751701711220D93A47DF5839FC52001D506F5D54ABFBBAAA75AE81801CE68017BE8B674D2527",
@@ -214,6 +219,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112208FD9C6536FEEFE3026D8838398261AE9EB8F250B16E8195358F5893364D53FCA",
@@ -250,6 +256,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B751701711220F84574367985116A160937E9DFA2FAF7A02013A001C4030DE78EF71C580B0F41",
@@ -286,6 +293,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B75170171122031F627FD20CF062DBC6F34FE250D077C8711F1EF4B18F8E4777D0B021C13A067",
@@ -314,6 +322,7 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
     TimeEventInsertable {
         event_id: "CE010500BA25076D730241E745CC7C072FF729EA683B7517017112205502894B152BB78E4EE8E5C665AE5D92AF339642A10EB481F7FC877CF117F0FE",
@@ -342,5 +351,6 @@
                 ],
             ],
         },
+        chain_inclusion: None,
     },
 ]

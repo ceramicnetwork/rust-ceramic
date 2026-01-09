@@ -9,6 +9,8 @@ use tracing::info;
 use ceramic_core::{EventId, SerializeExt};
 use ceramic_event::unvalidated::{AnchorProof, ProofEdge, RawTimeEvent, TimeEvent};
 
+use crate::transaction_manager::ChainInclusionData;
+
 /// AnchorRequest for a Data Event on a Stream
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct AnchorRequest {
@@ -101,6 +103,8 @@ pub struct TimeEventBatch {
     pub proof: AnchorProof,
     /// The Time Events
     pub raw_time_events: RawTimeEvents,
+    /// Chain inclusion data for self-anchored events (None for remote CAS)
+    pub chain_inclusion: Option<ChainInclusionData>,
 }
 
 impl std::fmt::Debug for TimeEventBatch {
@@ -109,6 +113,7 @@ impl std::fmt::Debug for TimeEventBatch {
             .field("merkle_nodes", &self.merkle_nodes)
             .field("proof", &self.proof)
             .field("raw_time_events", &self.raw_time_events)
+            .field("chain_inclusion", &self.chain_inclusion)
             .finish()
     }
 }
@@ -125,12 +130,19 @@ impl TimeEventBatch {
             merkle_nodes,
             proof,
             raw_time_events,
+            chain_inclusion,
         } = self;
         let events = raw_time_events
             .events
             .into_iter()
             .map(|(anchor_request, time_event)| {
-                Self::build_time_event_insertable(&proof, &merkle_nodes, time_event, anchor_request)
+                Self::build_time_event_insertable(
+                    &proof,
+                    &merkle_nodes,
+                    time_event,
+                    anchor_request,
+                    chain_inclusion.clone(),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(events)
@@ -142,6 +154,7 @@ impl TimeEventBatch {
         merkle_nodes: &MerkleNodes,
         time_event: RawTimeEvent,
         anchor_request: AnchorRequest,
+        chain_inclusion: Option<ChainInclusionData>,
     ) -> Result<TimeEventInsertable> {
         let time_event_cid = time_event.to_cid().context(format!(
             "could not serialize time event for {} with batch proof {}",
@@ -180,6 +193,7 @@ impl TimeEventBatch {
                 ))?,
             cid: time_event_cid,
             event: TimeEvent::new(time_event.clone(), proof.clone(), blocks_in_path),
+            chain_inclusion,
         })
     }
 
@@ -223,6 +237,8 @@ pub struct TimeEventInsertable {
     pub cid: Cid,
     /// The parsed structure containing the Time Event
     pub event: TimeEvent,
+    /// Chain inclusion data for self-anchored events (None for remote CAS)
+    pub chain_inclusion: Option<ChainInclusionData>,
 }
 
 impl std::fmt::Debug for TimeEventInsertable {
@@ -231,6 +247,7 @@ impl std::fmt::Debug for TimeEventInsertable {
             .field("event_id", &self.event_id.to_string())
             .field("cid", &self.cid.to_string())
             .field("event", &self.event)
+            .field("chain_inclusion", &self.chain_inclusion)
             .finish()
     }
 }

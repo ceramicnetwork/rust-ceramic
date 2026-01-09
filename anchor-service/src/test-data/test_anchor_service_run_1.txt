@@ -17,5 +17,6 @@
             },
             blocks_in_path: [],
         },
+        chain_inclusion: None,
     },
 ]

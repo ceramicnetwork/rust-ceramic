@@ -32,6 +32,7 @@ impl TransactionManager for MockCas {
                 proof,
             },
             remote_merkle_nodes: Default::default(),
+            chain_inclusion: None,
         })
     }
 }
