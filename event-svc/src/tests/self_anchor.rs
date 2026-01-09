@@ -614,21 +614,23 @@ async fn test_discover_chain_proof_direct() {
     assert_eq!(proof.timestamp, timestamp as i64);
 }
 
-/// Test that discover_chain_proof returns an error for non-existent proofs.
+/// Test that discover_chain_proof falls back to RPC when proof not in DB,
+/// and returns NoChainProvider error when no RPC provider is configured.
 #[tokio::test]
-async fn test_discover_chain_proof_not_found() {
+async fn test_discover_chain_proof_fallback_no_provider() {
     use ceramic_event::unvalidated;
 
     use crate::{EventService, UndeliveredEventReview};
 
     let pool = SqlitePool::connect_in_memory().await.unwrap();
+    // Service created with no RPC providers
     let service = EventService::try_new(pool.clone(), UndeliveredEventReview::Skip, false, vec![])
         .await
         .unwrap();
 
     // Create a time event for a non-existent chain proof
-    let tx_hash = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
-    let tx_hash_cid = tx_hash_to_cid(tx_hash);
+    let tx_hash_cid =
+        tx_hash_to_cid("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
     let init_cid = super::deterministic_cid(b"discover not found test init");
     let prev_cid = super::deterministic_cid(b"discover not found test prev");
 
@@ -643,29 +645,20 @@ async fn test_discover_chain_proof_not_found() {
         .build()
         .expect("test time event should build");
 
-    // Call discover_chain_proof - should fail because no proof was stored
+    // Call discover_chain_proof - should fail because proof not in DB and no RPC provider
     let result = service.discover_chain_proof(&time_event).await;
 
     assert!(
         result.is_err(),
-        "discover_chain_proof should fail for non-existent proof"
+        "discover_chain_proof should fail when no RPC provider configured"
     );
 
-    // Verify it's an InvalidProof error (discover_chain_proof returns InvalidProof when not found)
+    // Verify it's a NoChainProvider error (RPC fallback fails without provider)
     match result.unwrap_err() {
-        crate::eth_rpc::Error::InvalidProof(msg) => {
-            assert!(
-                msg.contains("not found in database"),
-                "Error message should indicate proof not found, got: {}",
-                msg
-            );
-            assert!(
-                msg.contains(tx_hash),
-                "Error message should contain tx_hash, got: {}",
-                msg
-            );
+        crate::eth_rpc::Error::NoChainProvider(chain_id) => {
+            assert_eq!(chain_id.to_string(), "eip155:100");
         }
-        other => panic!("Expected InvalidProof error, got: {:?}", other),
+        other => panic!("Expected NoChainProvider error, got: {:?}", other),
     }
 }
 

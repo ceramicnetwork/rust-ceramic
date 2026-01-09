@@ -544,26 +544,42 @@ impl EventService {
     }
 
     /// Get the chain proof for a given event from the database.
-    /// All proofs should have been validated and stored during the event validation phase (v0.55.0+).
+    /// All proofs should have been validated and stored during the event validation phase (v0.55.0+),
+    /// but in case it can't be found we try to dynamically discover it through the RPC provider
     pub(crate) async fn discover_chain_proof(
         &self,
         event: &ceramic_event::unvalidated::TimeEvent,
     ) -> std::result::Result<ChainProof, crate::eth_rpc::Error> {
         let tx_hash = event.proof().tx_hash();
         let tx_hash = tx_hash_try_from_cid(tx_hash).unwrap().to_string();
-        self.event_access
+        if let Some(proof) = self
+            .event_access
             .get_chain_proof(event.proof().chain_id(), &tx_hash)
             .await
             .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?
-            .ok_or_else(|| {
-                // Note: Using InvalidProof here rather than TxNotFound because:
-                // - TxNotFound is for "transaction not found on blockchain" (RPC-level)
-                // - This is "proof not in local database" (local storage issue)
-                crate::eth_rpc::Error::InvalidProof(format!(
-                    "Chain proof for tx {} not found in database.",
-                    tx_hash
-                ))
-            })
+        {
+            return Ok(proof);
+        }
+
+        warn!(
+            "Chain proof for tx {} not found in database, validating and storing it now.",
+            tx_hash
+        );
+
+        // Try using the RPC provider and store the proof
+        let proof = self
+            .event_validator
+            .time_event_validator()
+            .validate_chain_inclusion(event)
+            .await?;
+
+        let proof = ChainProof::from(proof);
+        self.event_access
+            .persist_chain_inclusion_proofs(std::slice::from_ref(&proof))
+            .await
+            .map_err(|e| crate::eth_rpc::Error::Application(e.into()))?;
+
+        Ok(proof)
     }
 }
 
