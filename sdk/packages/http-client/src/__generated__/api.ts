@@ -1237,6 +1237,10 @@ export interface components {
        * Multibase encoding of event data.
        */
       data?: string
+      /**
+       * Numeric offset of the event (monotonic index) used for resuming.
+       */
+      offset?: number
     }
     /**
      * A Ceramic Event Data Payload

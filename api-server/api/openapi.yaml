@@ -675,12 +675,16 @@ components:
       description: A Ceramic event as part of a Ceramic Stream. Contains both the
         root CID used to identify the Event as well as the Event payload data.
       example:
+        offset: 0
         data: data
         id: id
       properties:
         id:
           description: Multibase encoding of event root CID bytes.
           type: string
+        offset:
+          description: Numeric offset of the event (monotonic index) used for resuming.
+          type: integer
         data:
           description: Multibase encoding of event data.
           type: string
@@ -705,9 +709,11 @@ components:
       example:
         resumeToken: resumeToken
         events:
-        - data: data
+        - offset: 0
+          data: data
           id: id
-        - data: data
+        - offset: 0
+          data: data
           id: id
       properties:
         events:
@@ -728,9 +734,11 @@ components:
       example:
         resumeOffset: 0
         events:
-        - data: data
+        - offset: 0
+          data: data
           id: id
-        - data: data
+        - offset: 0
+          data: data
           id: id
         isComplete: true
       properties:

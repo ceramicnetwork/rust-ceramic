@@ -74,11 +74,15 @@ const INSERT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // Helper to build responses consistent as we can't implement for the api_server::models directly
 pub struct BuildResponse {}
 impl BuildResponse {
-    pub fn event(id: Cid, data: Option<Vec<u8>>) -> models::Event {
+    pub fn event(id: Cid, data: Option<Vec<u8>>, offset: Option<i64>) -> models::Event {
         let id = id.to_string();
         let mut res = models::Event::new(id);
         if data.as_ref().is_some_and(|e| !e.is_empty()) {
             res.data = Some(multibase::encode(multibase::Base::Base64, data.unwrap()));
+        }
+        if let Some(o) = offset {
+            // clamp to i32 range where applicable
+            res.offset = Some(o as i32);
         }
         res
     }
@@ -218,11 +222,13 @@ pub struct EventDataResult {
     pub id: ceramic_core::Cid,
     /// The data as a car file. Can be none if not requested.
     pub data: Option<Vec<u8>>,
+    /// The storage-delivered monotonic offset for this event (node-scoped, starts at 1)
+    pub offset: i64,
 }
 
 impl EventDataResult {
-    pub fn new(id: ceramic_core::Cid, data: Option<Vec<u8>>) -> Self {
-        Self { id, data }
+    pub fn new(id: ceramic_core::Cid, data: Option<Vec<u8>>, offset: i64) -> Self {
+        Self { id, data, offset }
     }
 }
 
@@ -585,9 +591,11 @@ where
             .events_since_highwater_mark(hw, limit as i64, include_data)
             .await
             .map_err(|e| ErrorResponse::new(format!("failed to get event data: {e}")))?;
+        // For the feed endpoint keep the response simple and do not expose
+        // storage-delivered offsets here; reserve offsets for experimental endpoints.
         let events = event_ids
             .into_iter()
-            .map(|ev| BuildResponse::event(ev.id, ev.data))
+            .map(|ev| BuildResponse::event(ev.id, ev.data, None))
             .collect();
 
         Ok(FeedEventsGetResponse::Success(models::EventFeed {
@@ -670,19 +678,26 @@ where
         let (start, stop) =
             self.build_start_stop_range(&sep_key, &sep_value, controller, stream_id)?;
 
-        let events = self
+        let rows = self
             .model
             .range_with_values(start..stop, offset, limit)
             .await
-            .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?
-            .into_iter()
-            .map(|(id, data)| BuildResponse::event(id, Some(data)))
-            .collect::<Vec<_>>();
+            .map_err(|err| ErrorResponse::new(format!("failed to get keys: {err}")))?;
+
+        let mut events = Vec::with_capacity(rows.len());
+        // Fall back to computing a monotonic offset relative to the provided `offset` when
+        // the store doesn't provide authoritative delivered values for range queries.
+        let mut last_offset: i64 = offset as i64;
+        for (i, (cid, data)) in rows.into_iter().enumerate() {
+            let delivered = offset as i64 + i as i64 + 1;
+            events.push(BuildResponse::event(cid, Some(data), Some(delivered)));
+            last_offset = delivered;
+        }
 
         let event_cnt = events.len() as u32;
         Ok(ExperimentalEventsSepSepValueGetResponse::Success(
             models::EventsGet {
-                resume_offset: (offset + event_cnt) as i32,
+                resume_offset: last_offset as i32,
                 events,
                 is_complete: event_cnt < limit,
             },
@@ -807,7 +822,8 @@ where
         };
         match data {
             Ok(Some(data)) => {
-                let event = BuildResponse::event(cid, Some(data));
+                // when returning a single event, offset is not known here; leave None
+                let event = BuildResponse::event(cid, Some(data), None);
                 Ok(EventsEventIdGetResponse::Success(event))
             }
             Ok(None) => Ok(EventsEventIdGetResponse::EventNotFound(format!(

@@ -626,6 +626,9 @@ components:
         id:
           type: string
           description: Multibase encoding of event root CID bytes.
+        offset:
+          type: integer
+          description: Numeric offset of the event (monotonic index) used for resuming.
         data:
           type: string
           description: Multibase encoding of event data.
