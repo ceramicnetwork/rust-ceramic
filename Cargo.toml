@@ -213,7 +213,7 @@ temp-env = "0.3.1"
 tempfile = "3.3"
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 testdir = "0.7.0"
-thiserror = "1"
+thiserror = "2"
 tikv-jemallocator = { version = "0.5", features = [
     "profiling",
     "unprefixed_malloc_on_supported_platforms",
