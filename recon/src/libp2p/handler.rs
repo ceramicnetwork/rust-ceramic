@@ -14,6 +14,7 @@ use libp2p::{
     },
 };
 use libp2p_identity::PeerId;
+use tokio::time::Instant;
 use tracing::{debug, trace};
 
 use crate::{
@@ -29,6 +30,9 @@ pub struct Handler<P, M> {
     model: M,
     state: State,
     behavior_events_queue: VecDeque<FromHandler>,
+    /// Timestamp until which incoming syncs should be rejected.
+    /// If this is in the future, incoming sync attempts will be dropped.
+    reject_inbound_until: Option<Instant>,
 }
 
 impl<P, M> Handler<P, M>
@@ -42,6 +46,7 @@ where
         state: State,
         peer: P,
         model: M,
+        reject_inbound_until: Option<Instant>,
     ) -> Self {
         Self {
             remote_peer_id: peer_id,
@@ -50,6 +55,7 @@ where
             model,
             state,
             behavior_events_queue: VecDeque::new(),
+            reject_inbound_until,
         }
     }
     // Transition the state to a new state.
@@ -134,7 +140,14 @@ impl std::fmt::Debug for State {
 
 #[derive(Debug)]
 pub enum FromBehaviour {
-    StartSync { stream_set: StreamSet },
+    StartSync {
+        stream_set: StreamSet,
+    },
+    /// Update the timestamp until which incoming syncs should be rejected.
+    /// Used to reject incoming syncs from peers we're currently backing off.
+    UpdateRejectUntil {
+        reject_until: Option<Instant>,
+    },
 }
 #[derive(Debug)]
 pub enum FromHandler {
@@ -149,6 +162,10 @@ pub enum FromHandler {
     Failed {
         stream_set: StreamSet,
         error: anyhow::Error,
+    },
+    /// An incoming sync was rejected because we're backing off from this peer.
+    InboundRejected {
+        stream_set: StreamSet,
     },
 }
 
@@ -239,6 +256,9 @@ where
                 | State::Outbound(_, _)
                 | State::Inbound(_, _) => {}
             },
+            FromBehaviour::UpdateRejectUntil { reject_until } => {
+                self.reject_inbound_until = reject_until;
+            }
         }
     }
 
@@ -260,6 +280,21 @@ where
             ) => {
                 match self.state {
                     State::Idle | State::WaitingInbound => {
+                        // Check if we should reject this inbound sync due to backoff
+                        if let Some(reject_until) = self.reject_inbound_until {
+                            if reject_until > Instant::now() {
+                                debug!(
+                                    %self.remote_peer_id,
+                                    ?self.connection_id,
+                                    ?stream_set,
+                                    "rejecting inbound sync due to backoff"
+                                );
+                                self.behavior_events_queue
+                                    .push_front(FromHandler::InboundRejected { stream_set });
+                                return;
+                            }
+                        }
+
                         self.behavior_events_queue
                             .push_front(FromHandler::Started { stream_set });
                         let stream = match stream_set {

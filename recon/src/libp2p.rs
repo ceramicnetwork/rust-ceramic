@@ -24,12 +24,14 @@ use ceramic_core::{EventId, PeerKey};
 use futures::{future::BoxFuture, FutureExt};
 use libp2p::{
     core::ConnectedPoint,
-    swarm::{CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm},
+    swarm::{
+        CloseConnection, ConnectionDenied, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    },
 };
 use libp2p_identity::PeerId;
 use std::{
     cmp::min,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, HashSet},
     task::Poll,
     time::Duration,
 };
@@ -38,8 +40,10 @@ use tracing::{debug, trace, warn};
 
 use crate::{
     libp2p::handler::{FromBehaviour, FromHandler, Handler},
+    metrics::{BlockedConnection, InboundSyncRejected},
     Sha256a,
 };
+use ceramic_metrics::Recorder;
 
 /// Name of the Recon protocol for synchronizing peers
 pub const PROTOCOL_NAME_PEER: &str = "/ceramic/recon/0.1.0/peer";
@@ -57,6 +61,9 @@ pub struct Config {
     /// Maximum delay between synchronization attempts.
     /// Defaults to 10 minutes
     pub per_peer_maximum_sync_delay: Duration,
+    /// Set of PeerIds that are permanently blocked.
+    /// Connections from these peers will be denied.
+    pub blocked_peers: HashSet<PeerId>,
 }
 
 impl Default for Config {
@@ -65,6 +72,7 @@ impl Default for Config {
             per_peer_sync_delay: Duration::from_millis(1000),
             per_peer_sync_backoff: 2.0,
             per_peer_maximum_sync_delay: Duration::from_secs(60 * 10),
+            blocked_peers: HashSet::new(),
         }
     }
 }
@@ -79,6 +87,9 @@ pub struct Behaviour<P, M> {
     model: M,
     config: Config,
     peers: BTreeMap<PeerId, PeerInfo>,
+    /// Tracks backoff state for peers, persisting across disconnections.
+    /// Maps peer ID to the time until which incoming syncs should be rejected.
+    backoff_registry: BTreeMap<PeerId, Instant>,
     swarm_events_sender: tokio::sync::mpsc::Sender<ToSwarm<Event, FromBehaviour>>,
     swarm_events_receiver: tokio::sync::mpsc::Receiver<ToSwarm<Event, FromBehaviour>>,
     next_sync: Option<BoxFuture<'static, ()>>,
@@ -94,6 +105,7 @@ where
             .field("model", &self.model)
             .field("config", &self.config)
             .field("peers", &self.peers)
+            .field("backoff_registry", &self.backoff_registry)
             .field("swarm_events_sender", &self.swarm_events_sender)
             .field("swarm_events_receiver", &self.swarm_events_receiver)
             .field("next_sync", &"_")
@@ -156,6 +168,7 @@ impl<P, M> Behaviour<P, M> {
             model,
             config,
             peers: BTreeMap::new(),
+            backoff_registry: BTreeMap::new(),
             swarm_events_sender: tx,
             swarm_events_receiver: rx,
             next_sync: None,
@@ -168,6 +181,16 @@ impl<P, M> Behaviour<P, M> {
             let handle = tokio::runtime::Handle::current();
             handle.block_on(async move { tx.send(event).await })
         });
+    }
+
+    /// Calculate the reject_until timestamp for a peer
+    fn calculate_reject_until(peer_info: &PeerInfo) -> Option<Instant> {
+        peer_info
+            .next_sync
+            .values()
+            .max()
+            .copied()
+            .filter(|t| *t > Instant::now())
     }
 }
 
@@ -188,6 +211,8 @@ where
                     id: info.connection_id,
                     dialer: matches!(info.endpoint, ConnectedPoint::Dialer { .. }),
                 };
+
+                // Get or create peer info
                 self.peers
                     .entry(info.peer_id)
                     .and_modify(|peer_info| peer_info.connections.push(connection_info))
@@ -311,9 +336,28 @@ where
                         ),
                     );
                     info.status = PeerStatus::Failed { stream_set };
+                    // Collect data before releasing borrow
+                    let reject_until = Self::calculate_reject_until(info);
+                    let status = info.status;
+                    let connection_ids: Vec<_> = info.connections.iter().map(|c| c.id).collect();
+
+                    // Update backoff registry and notify handlers
+                    if let Some(reject_until) = reject_until {
+                        self.backoff_registry.insert(peer_id, reject_until);
+                        // Notify handlers so they can reject incoming syncs
+                        for conn_id in connection_ids {
+                            self.send_event(ToSwarm::NotifyHandler {
+                                peer_id,
+                                handler: NotifyHandler::One(conn_id),
+                                event: FromBehaviour::UpdateRejectUntil {
+                                    reject_until: Some(reject_until),
+                                },
+                            });
+                        }
+                    }
                     Some(ToSwarm::GenerateEvent(Event::PeerEvent(PeerEvent {
                         remote_peer_id: peer_id,
-                        status: info.status,
+                        status,
                     })))
                 } else {
                     tracing::warn!(%peer_id, ?connection_id, "peer not found in peers map when failed synchronizing? closing connectoin");
@@ -322,6 +366,13 @@ where
                         connection: CloseConnection::One(connection_id),
                     })
                 }
+            }
+
+            // An incoming sync was rejected due to backoff - just log it, no state change needed
+            FromHandler::InboundRejected { stream_set } => {
+                debug!(%peer_id, ?stream_set, "inbound sync rejected due to backoff");
+                self.peer.metrics().record(&InboundSyncRejected);
+                None
             }
         };
 
@@ -334,6 +385,10 @@ where
         &mut self,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, libp2p::swarm::THandlerInEvent<Self>>> {
+        // Clean up expired backoff entries
+        let now = Instant::now();
+        self.backoff_registry.retain(|_, expires| *expires > now);
+
         if let Poll::Ready(Some(event)) = self.swarm_events_receiver.poll_recv(cx) {
             trace!(?event, "swarm event");
             return Poll::Ready(event);
@@ -388,13 +443,26 @@ where
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        debug!(%peer, ?connection_id, "handle_established_inbound_connection");
+        // Check if peer is blocked
+        if self.config.blocked_peers.contains(&peer) {
+            debug!(%peer, ?connection_id, "rejecting inbound connection from blocked peer");
+            self.peer.metrics().record(&BlockedConnection);
+            return Err(ConnectionDenied::new(format!("peer {} is blocked", peer)));
+        }
+        // Check backoff registry for this peer
+        let reject_inbound_until = self
+            .backoff_registry
+            .get(&peer)
+            .copied()
+            .filter(|t| *t > Instant::now());
+        debug!(%peer, ?connection_id, ?reject_inbound_until, "handle_established_inbound_connection");
         Ok(Handler::new(
             peer,
             connection_id,
             handler::State::WaitingInbound,
             self.peer.clone(),
             self.model.clone(),
+            reject_inbound_until,
         ))
     }
 
@@ -405,7 +473,19 @@ where
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
     ) -> std::result::Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        debug!(%peer, ?connection_id, "handle_established_outbound_connection");
+        // Check if peer is blocked
+        if self.config.blocked_peers.contains(&peer) {
+            debug!(%peer, ?connection_id, "rejecting outbound connection to blocked peer");
+            self.peer.metrics().record(&BlockedConnection);
+            return Err(ConnectionDenied::new(format!("peer {} is blocked", peer)));
+        }
+        // Check backoff registry for this peer
+        let reject_inbound_until = self
+            .backoff_registry
+            .get(&peer)
+            .copied()
+            .filter(|t| *t > Instant::now());
+        debug!(%peer, ?connection_id, ?reject_inbound_until, "handle_established_outbound_connection");
         Ok(Handler::new(
             peer,
             connection_id,
@@ -415,6 +495,7 @@ where
             },
             self.peer.clone(),
             self.model.clone(),
+            reject_inbound_until,
         ))
     }
 }
